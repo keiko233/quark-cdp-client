@@ -15,46 +15,54 @@ export interface QuarkFileList {
   items: QuarkFileListItem[];
 }
 
-const TABLE_ROOT_SELECTOR = ".selecto-container.quark-cloud-drive-table-file";
-const BREADCRUMB_SELECTOR = "#quark-cloud-drive-list-all-breadcrumb";
+export const TABLE_ROOT_SELECTOR =
+  ".selecto-container.quark-cloud-drive-table-file";
+export const BREADCRUMB_SELECTOR = "#quark-cloud-drive-list-all-breadcrumb";
+export const TABLE_ROW_SELECTOR = "tbody.ant-table-tbody > tr";
+export const TABLE_SCROLL_SELECTOR = "div.ant-table-body";
 const HOME_TEXT = "\u9996\u9875";
 const ROOT_PATH_TEXT = "\u6587\u4ef6";
+const FILE_LIST_READY_TIMEOUT = 10_000;
 
-async function resetToHome(homePage: Page): Promise<void> {
-  const navList = homePage.locator('[class^="SiderNav__nav-list"]').first();
-  await navList.waitFor({
+export async function resetToHome(homePage: Page): Promise<void> {
+  const userDivider = homePage.locator("div.user-divider").first();
+  await userDivider.waitFor({
     state: "visible",
     timeout: 10_000,
   });
 
-  const clicked = await navList.evaluate((element, homeText) => {
-    const items = [...element.querySelectorAll("[class]")];
-    const homeItem = items.find((item) =>
-      [...item.classList].some((className) =>
-        className === `nav-item-${homeText}` ||
-        className.includes(`nav-item-${homeText}`)
-      ) || (item.textContent ?? "").includes(homeText)
-    );
+  const clicked = await userDivider.evaluate((element) => {
+    const homeItem = element.children.item(0)?.querySelector("div");
 
     homeItem?.click();
     return Boolean(homeItem);
-  }, HOME_TEXT);
+  });
 
   if (!clicked) {
     throw new Error("Home nav item not found");
   }
 
+  await waitForRootBreadcrumb(homePage);
+  await waitForFileListReady(homePage);
+}
+
+async function waitForRootBreadcrumb(homePage: Page): Promise<void> {
   await homePage.locator(BREADCRUMB_SELECTOR).first().waitFor({
     state: "visible",
     timeout: 10_000,
   });
-  await homePage.locator(TABLE_ROOT_SELECTOR).first()
-    .locator("tbody.ant-table-tbody")
-    .first()
-    .waitFor({
-      state: "visible",
-      timeout: 10_000,
-    });
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 10_000) {
+    const pathSegments = await readBreadcrumbPath(homePage);
+    if (pathSegments.length === 0) {
+      return;
+    }
+
+    await homePage.waitForTimeout(100);
+  }
+
+  throw new Error("Timed out waiting for home breadcrumb");
 }
 
 async function collectVirtualTableRows(
@@ -108,7 +116,10 @@ async function collectVirtualTableRows(
   return [...rows.values()];
 }
 
-async function navigateToPath(homePage: Page, path: string): Promise<void> {
+export async function navigateToPath(
+  homePage: Page,
+  path: string,
+): Promise<void> {
   const segments = parsePathSegments(path);
 
   for (const segment of segments) {
@@ -119,15 +130,17 @@ async function navigateToPath(homePage: Page, path: string): Promise<void> {
 
 async function openPathSegment(homePage: Page, segment: string): Promise<void> {
   const scrollContainer = getScrollContainer(homePage);
+  const startedAt = Date.now();
 
   await scrollContainer.evaluate((element) => {
     element.scrollTop = 0;
   });
+  await waitForFileListReady(homePage);
 
-  while (true) {
+  while (Date.now() - startedAt < FILE_LIST_READY_TIMEOUT) {
     const visibleRowIndex = await findVisibleRowIndex(homePage, segment);
     if (visibleRowIndex >= 0) {
-      await homePage.locator(`${TABLE_ROOT_SELECTOR} tr.ant-table-row`)
+      await homePage.locator(TABLE_ROW_SELECTOR)
         .nth(visibleRowIndex)
         .evaluate((row) => {
           const MouseEventCtor = (window as unknown as {
@@ -173,53 +186,94 @@ async function openPathSegment(homePage: Page, segment: string): Promise<void> {
     });
 
     if (scrollState.after === scrollState.before) {
-      throw new Error(`Path segment not found: ${segment}`);
+      await waitForFileListReady(homePage);
+      await scrollContainer.evaluate((element) => {
+        element.scrollTop = 0;
+      });
+    } else {
+      await homePage.waitForTimeout(150);
+    }
+  }
+
+  throw new Error(`Path segment not found: ${segment}`);
+}
+
+export async function findVisibleRowIndex(
+  homePage: Page,
+  segment: string,
+): Promise<number> {
+  return await homePage.locator(TABLE_ROW_SELECTOR)
+    .evaluateAll((rows, targetName) =>
+      rows.findIndex((row) => {
+        const name = row.querySelector("td.td-file.file-name .filename-text")
+          ?.textContent ?? "";
+        return name.replace(/\s+/g, " ").trim() === targetName;
+      }), segment);
+}
+
+export async function waitForFileListReady(homePage: Page): Promise<void> {
+  await homePage.locator(BREADCRUMB_SELECTOR).first().waitFor({
+    state: "visible",
+    timeout: 10_000,
+  });
+  await homePage.locator("tbody.ant-table-tbody")
+    .first()
+    .waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+  await getScrollContainer(homePage).waitFor({
+    state: "visible",
+    timeout: 10_000,
+  });
+  await waitForNetworkSettled(homePage);
+  await waitForTableRowsStable(homePage);
+}
+
+export function getScrollContainer(homePage: Page) {
+  return homePage.locator(TABLE_SCROLL_SELECTOR).first();
+}
+
+async function waitForNetworkSettled(homePage: Page): Promise<void> {
+  await homePage.waitForLoadState("networkidle", { timeout: 3_000 })
+    .catch(() => undefined);
+}
+
+async function waitForTableRowsStable(homePage: Page): Promise<void> {
+  let previousSnapshot = "";
+  let stableRounds = 0;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < FILE_LIST_READY_TIMEOUT) {
+    const snapshot = await homePage.locator(TABLE_ROW_SELECTOR).evaluateAll(
+      (rows) =>
+        rows
+          .map((row) =>
+            (row.querySelector("td.td-file.file-name .filename-text")
+              ?.textContent ?? "").replace(/\s+/g, " ").trim()
+          )
+          .filter(Boolean)
+          .join("\u0000"),
+    );
+
+    if (snapshot === previousSnapshot) {
+      stableRounds++;
+      if (stableRounds >= 2) {
+        return;
+      }
+    } else {
+      stableRounds = 0;
+      previousSnapshot = snapshot;
     }
 
     await homePage.waitForTimeout(150);
   }
 }
 
-async function findVisibleRowIndex(
-  homePage: Page,
-  segment: string,
-): Promise<number> {
-  return await homePage.locator(`${TABLE_ROOT_SELECTOR} tr.ant-table-row`)
-    .evaluateAll((rows, targetName) =>
-      rows.findIndex((row) => {
-        const name = row.querySelector("td.td-file-name")?.textContent ?? "";
-        return name.replace(/\s+/g, " ").trim() === targetName;
-      }), segment);
-}
-
-async function waitForFileListReady(homePage: Page): Promise<void> {
-  await homePage.locator(BREADCRUMB_SELECTOR).first().waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
-  await homePage.locator(TABLE_ROOT_SELECTOR).first()
-    .locator("tbody.ant-table-tbody")
-    .first()
-    .waitFor({
-      state: "visible",
-      timeout: 10_000,
-    });
-}
-
-function getScrollContainer(homePage: Page) {
-  return homePage.locator(
-    [
-      `${TABLE_ROOT_SELECTOR} .ant-table-body.ant-table-body-scroll`,
-      `${TABLE_ROOT_SELECTOR} .rc-virtual-list-holder`,
-      `${TABLE_ROOT_SELECTOR} .ant-table-body`,
-    ].join(", "),
-  ).first();
-}
-
 async function readVisibleRows(
   homePage: Page,
 ): Promise<QuarkFileListItem[]> {
-  return await homePage.locator(`${TABLE_ROOT_SELECTOR} tr.ant-table-row`)
+  return await homePage.locator(TABLE_ROW_SELECTOR)
     .evaluateAll((rows) =>
       rows.map((row) => {
         const getCellText = (selector: string): string => {
@@ -228,10 +282,14 @@ async function readVisibleRows(
         };
 
         return {
-          name: getCellText("td.td-file-name"),
-          size: getCellText("td.td-file-size"),
-          type: getCellText("td.td-file-type"),
-          updatedAt: getCellText("td.td-file-time"),
+          name: getCellText(
+            "td.ant-table-cell.td-file.file-name .filename-text",
+          ),
+          size: getCellText("td.ant-table-cell.td-file.td-file-size"),
+          type: getCellText(
+            "td.ant-table-cell.td-file:not(.file-name):not(.td-file-size):not(.td-file-time)",
+          ),
+          updatedAt: getCellText("td.ant-table-cell.td-file.td-file-time"),
         };
       }).filter((item) => item.name.length > 0)
     );
@@ -241,14 +299,15 @@ async function readBreadcrumbPath(homePage: Page): Promise<string[]> {
   return await homePage.locator(BREADCRUMB_SELECTOR).first().evaluate((
     root,
     rootPathText,
-  ) =>
-    [...root.querySelectorAll(".bcrumb-filename")]
-      .map((item) => {
-        const textElement = item.querySelector("span") ?? item;
-        return (textElement.textContent ?? "").replace(/\s+/g, " ").trim();
-      })
+  ) => {
+    const normalize = (value: string | null): string =>
+      (value ?? "").replace(/\s+/g, " ").trim();
+
+    return [...root.querySelectorAll(".bcrumb-filename")]
+      .map((item) => normalize((item.querySelector("a") ?? item).textContent))
       .filter(Boolean)
-      .filter((text) => text !== rootPathText), ROOT_PATH_TEXT);
+      .filter((text) => text !== rootPathText);
+  }, ROOT_PATH_TEXT);
 }
 
 export function normalizeFileListText(value: string | null): string {

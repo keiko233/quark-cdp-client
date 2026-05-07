@@ -1,5 +1,7 @@
 import { getBrowser } from "../client/browser.ts";
 import {
+  downloadFile,
+  getDownloadStatus,
   getFileList,
   getLoginQRCode,
   getLoginStatus,
@@ -42,11 +44,7 @@ export const router = {
   getUserInfo: baseProcedure
     .route({ method: "GET", path: "/get-user-info" })
     .output(z.object({
-      name: z.string(),
-      capacity: z.object({
-        used: z.string(),
-        total: z.string(),
-      }),
+      capacity: z.string(),
     }))
     .handler(async () => {
       return await getUserInfo();
@@ -76,5 +74,53 @@ export const router = {
     }))
     .handler(async ({ input }) => {
       return await getFileList(input.query?.path);
+    }),
+
+  downloadFile: baseProcedure
+    .route({
+      method: "GET",
+      path: "/download-file",
+      inputStructure: "detailed",
+    })
+    .input(
+      z.object({
+        query: z.object({
+          path: z.string(),
+        }),
+      }),
+    )
+    .output(z.object({
+      name: z.string(),
+    }))
+    .handler(async ({ input }) => {
+      return await downloadFile(input.query.path);
+    }),
+
+  getDownloadStatus: baseProcedure
+    .route({
+      method: "GET",
+      path: "/get-download-status",
+      inputStructure: "detailed",
+    })
+    .input(
+      z.object({
+        query: z.object({
+          status: z.enum(["running", "complete", "all"]).optional(),
+        }).optional(),
+      }),
+    )
+    .output(z.object({
+      tasks: z.array(z.object({
+        state: z.enum(["running", "complete"]),
+        name: z.string(),
+        size: z.string(),
+        progress: z.string(),
+        speed: z.string(),
+        remaining: z.string(),
+        completedAt: z.string(),
+      })),
+    }))
+    .handler(async ({ input }) => {
+      return await getDownloadStatus(input.query?.status);
     }),
 };

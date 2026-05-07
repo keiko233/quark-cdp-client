@@ -1,5 +1,5 @@
 import { getBrowser } from "../browser.ts";
-import { QUARK_HOME_PAGE_URL } from "../../consts.ts";
+import { QUARK_HOME_PAGE_URL, QUARK_LOGIN_PAGE_URL } from "../../consts.ts";
 import { findPageByUrl } from "../../libs/utils.ts";
 
 export async function getLoginStatus() {
@@ -12,7 +12,16 @@ export async function getLoginStatus() {
 
   const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
   if (!homePage) {
-    throw new Error(`Home page not found: ${QUARK_HOME_PAGE_URL}`);
+    const loginPage = findPageByUrl(context, QUARK_LOGIN_PAGE_URL);
+    if (loginPage) {
+      return {
+        loggedIn: false,
+      };
+    }
+
+    throw new Error(
+      `Login status page not found: ${QUARK_HOME_PAGE_URL} or ${QUARK_LOGIN_PAGE_URL}`,
+    );
   }
 
   await homePage.bringToFront();

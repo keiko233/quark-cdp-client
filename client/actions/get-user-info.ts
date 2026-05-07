@@ -18,53 +18,15 @@ export async function getUserInfo() {
   await homePage.bringToFront();
   await homePage.waitForLoadState("domcontentloaded");
 
-  const memberInfo = homePage.locator("div.member-info").first();
-  await memberInfo.waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
-  await memberInfo.hover();
-
-  const userInfoRoot = homePage.locator("body > div:nth-child(4) > div > div")
-    .first();
-  await userInfoRoot.waitFor({
+  const capacityNumber = homePage.locator("div.capacity-number").first();
+  await capacityNumber.waitFor({
     state: "visible",
     timeout: 10_000,
   });
 
-  const userName = userInfoRoot.locator(".user-name").first();
-  await userName.waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
-
-  const capacityUsed = userInfoRoot.locator(
-    '[class^="SpaceManageEntry__capacity-used"]',
-  ).first();
-  const capacityTotal = userInfoRoot.locator(
-    '[class^="SpaceManageEntry__capacity-total"]',
-  ).first();
-
-  await capacityUsed.waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
-  await capacityTotal.waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
-
-  const [name, used, total] = await Promise.all([
-    userName.textContent(),
-    capacityUsed.textContent(),
-    capacityTotal.textContent(),
-  ]);
+  const capacity = await capacityNumber.textContent();
 
   return {
-    name: name?.trim() ?? "",
-    capacity: {
-      used: used?.trim() ?? "",
-      total: total?.trim() ?? "",
-    },
+    capacity: capacity?.trim() ?? "",
   };
 }

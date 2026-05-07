@@ -1,6 +1,10 @@
 import type { BrowserContext, Page } from "playwright";
 import { getBrowser } from "../browser.ts";
-import { QUARK_HOME_PAGE_URL, QUARK_MEMBER_PAGE_URL } from "../../consts.ts";
+import {
+  QUARK_HOME_PAGE_URL,
+  QUARK_LOGIN_PAGE_URL,
+  QUARK_MEMBER_PAGE_URL,
+} from "../../consts.ts";
 import { findPageByUrl } from "../../libs/utils.ts";
 
 async function getMemberPage(context: BrowserContext, homePage: Page): Promise<{
@@ -11,6 +15,14 @@ async function getMemberPage(context: BrowserContext, homePage: Page): Promise<{
   if (existingPage) {
     return {
       memberPage: existingPage,
+      createdByClick: false,
+    };
+  }
+
+  const existingLoginPage = findPageByUrl(context, QUARK_LOGIN_PAGE_URL);
+  if (existingLoginPage) {
+    return {
+      memberPage: existingLoginPage,
       createdByClick: false,
     };
   }
@@ -34,6 +46,39 @@ async function getMemberPage(context: BrowserContext, homePage: Page): Promise<{
   };
 }
 
+async function screenshotQRCode(
+  page: Page,
+  options: { refresh?: boolean } = {},
+): Promise<Uint8Array> {
+  await page.bringToFront();
+  if (options.refresh) {
+    await page.reload({
+      waitUntil: "domcontentloaded",
+      timeout: 10_000,
+    });
+    await page.waitForLoadState("networkidle", {
+      timeout: 10_000,
+    });
+  } else {
+    await page.waitForLoadState("domcontentloaded");
+  }
+
+  const qrCode = page.locator([
+    ".qrcode-display canvas",
+    ".qrcode-container canvas",
+    ".qrcode-display",
+    ".qrcode-container",
+  ].join(", ")).first();
+  await qrCode.waitFor({
+    state: "visible",
+    timeout: 10_000,
+  });
+
+  return await qrCode.screenshot({
+    type: "png",
+  });
+}
+
 export async function getLoginQRCode() {
   const browser = getBrowser();
 
@@ -44,29 +89,19 @@ export async function getLoginQRCode() {
 
   const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
   if (!homePage) {
-    throw new Error(`Home page not found: ${QUARK_HOME_PAGE_URL}`);
+    const loginPage = findPageByUrl(context, QUARK_LOGIN_PAGE_URL);
+    if (loginPage) {
+      return await screenshotQRCode(loginPage, { refresh: true });
+    }
+
+    throw new Error(
+      `Login QR code page not found: ${QUARK_HOME_PAGE_URL} or ${QUARK_LOGIN_PAGE_URL}`,
+    );
   }
 
   await homePage.bringToFront();
 
   const { memberPage } = await getMemberPage(context, homePage);
 
-  await memberPage.bringToFront();
-  await memberPage.reload({
-    waitUntil: "domcontentloaded",
-    timeout: 10_000,
-  });
-  await memberPage.waitForLoadState("networkidle", {
-    timeout: 10_000,
-  });
-
-  const qrCode = memberPage.locator(".qrcode-container").first();
-  await qrCode.waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
-
-  return await qrCode.screenshot({
-    type: "png",
-  });
+  return await screenshotQRCode(memberPage, { refresh: true });
 }
