@@ -8,7 +8,7 @@ services:
 
     # ports:
     #   - "5900:5900"
-    #   - "${REMOTE_DEBUGGING_PORT:-9222}:9223"
+    #   - "${REMOTE_DEBUGGING_PORT:-9223}:9223"
 
     volumes:
       - ./wine-data:/opt/spark-bottle/drive_c/users/wineuser/Application Data/quark-cloud-drive
@@ -40,7 +40,7 @@ services:
     environment:
       CDP_URL: http://127.0.0.1:${CDP_FORWARD_LOCAL_PORT:-9222}
       CDP_FORWARD_HOST: ${CDP_FORWARD_HOST:-quark-docker}
-      CDP_FORWARD_PORT: ${CDP_FORWARD_PORT:-9222}
+      CDP_FORWARD_PORT: ${CDP_FORWARD_PORT:-9223}
       CDP_FORWARD_LOCAL_PORT: ${CDP_FORWARD_LOCAL_PORT:-9222}
 
     depends_on:

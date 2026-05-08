@@ -11,7 +11,7 @@ A Deno service that connects to a browser over CDP and exposes a small HTTP API 
 | `LOG_LEVEL` | `trace` |
 | `SERVER_PORT` | `3000` |
 | `CDP_FORWARD_HOST` | `quark-docker` |
-| `CDP_FORWARD_PORT` | `9222` |
+| `CDP_FORWARD_PORT` | `9223` |
 | `CDP_FORWARD_LOCAL_PORT` | `9222` |
 
 In Docker Compose, run a local TCP forwarder inside `quark-cdp-client` so the
@@ -23,9 +23,13 @@ quark-cdp-client:
   environment:
     CDP_URL: http://127.0.0.1:${CDP_FORWARD_LOCAL_PORT:-9222}
     CDP_FORWARD_HOST: ${CDP_FORWARD_HOST:-quark-docker}
-    CDP_FORWARD_PORT: ${CDP_FORWARD_PORT:-9222}
+    CDP_FORWARD_PORT: ${CDP_FORWARD_PORT:-9223}
     CDP_FORWARD_LOCAL_PORT: ${CDP_FORWARD_LOCAL_PORT:-9222}
 ```
+
+Note: `quark-docker` exposes CDP to peer containers on port `9223` via its
+internal cdp-proxy, even though the browser itself still listens on `127.0.0.1:9222`
+inside that container.
 
 ## Local
 
