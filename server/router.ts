@@ -1,4 +1,4 @@
-import { getBrowser } from "../client/browser.ts";
+import { getBrowser, getBrowserQueueStatus } from "../client/browser.ts";
 import {
   downloadFile,
   getDownloadStatus,
@@ -18,6 +18,18 @@ export const router = {
       return {
         version: browser.version(),
       };
+    }),
+
+  getQueueStatus: baseProcedure
+    .route({ method: "GET", path: "/get-queue-status" })
+    .output(z.object({
+      running: z.boolean(),
+      current: z.string().nullable(),
+      queued: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+    }))
+    .handler(() => {
+      return getBrowserQueueStatus();
     }),
 
   getLoginQRCode: baseProcedure
