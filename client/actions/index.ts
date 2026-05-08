@@ -12,6 +12,10 @@ export type {
 	QuarkDownloadTask,
 	QuarkDownloadTaskState,
 } from "./get-download-status.ts";
+export type {
+	QuarkDownloadTaskOperation,
+	QuarkSetDownloadStatusResult,
+} from "./set-download-status.ts";
 
 import { enqueueBrowserOperation } from "../browser.ts";
 import { getLoginQRCode as getLoginQRCodeImpl } from "./get-login-qrcode.ts";
@@ -22,6 +26,9 @@ import { downloadFile as downloadFileImpl } from "./download-file.ts";
 import {
 	getDownloadStatus as getDownloadStatusImpl,
 } from "./get-download-status.ts";
+import {
+	setDownloadStatus as setDownloadStatusImpl,
+} from "./set-download-status.ts";
 
 export function getLoginQRCode() {
 	return enqueueBrowserOperation(getLoginQRCodeImpl, "getLoginQRCode");
@@ -47,5 +54,15 @@ export function getDownloadStatus(status?: "running" | "complete" | "all") {
 	return enqueueBrowserOperation(
 		() => getDownloadStatusImpl(status),
 		"getDownloadStatus",
+	);
+}
+
+export function setDownloadStatus(
+	taskName: string,
+	operation: "resume" | "pause" | "delete",
+) {
+	return enqueueBrowserOperation(
+		() => setDownloadStatusImpl(taskName, operation),
+		"setDownloadStatus",
 	);
 }

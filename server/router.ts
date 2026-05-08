@@ -2,6 +2,7 @@ import { getBrowser, getBrowserQueueStatus } from "../client/browser.ts";
 import {
   downloadFile,
   getDownloadStatus,
+  setDownloadStatus,
   getFileList,
   getLoginQRCode,
   getLoginStatus,
@@ -134,5 +135,29 @@ export const router = {
     }))
     .handler(async ({ input }) => {
       return await getDownloadStatus(input.query?.status);
+    }),
+
+  setDownloadStatus: baseProcedure
+    .route({
+      method: "POST",
+      path: "/set-download-status",
+      inputStructure: "detailed",
+    })
+    .input(
+      z.object({
+        body: z.object({
+          taskName: z.string(),
+          operation: z.enum(["resume", "pause", "delete"]),
+        }),
+      }),
+    )
+    .output(z.object({
+      success: z.boolean(),
+    }))
+    .handler(async ({ input }) => {
+      return await setDownloadStatus(
+        input.body.taskName,
+        input.body.operation,
+      );
     }),
 };

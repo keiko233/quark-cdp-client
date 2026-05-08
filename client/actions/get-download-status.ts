@@ -29,7 +29,7 @@ const TASK_LIST_SELECTOR = "div.task-list-container";
 const TASK_ITEM_SELECTOR = "div.task-item";
 const TASK_PANEL_READY_TIMEOUT = 3_000;
 
-async function openTransportCenter(homePage: Page): Promise<void> {
+export async function openTransportCenter(homePage: Page): Promise<void> {
   const userDivider = homePage.locator(USER_DIVIDER_SELECTOR).first();
   await userDivider.waitFor({
     state: "visible",
@@ -53,7 +53,7 @@ async function openTransportCenter(homePage: Page): Promise<void> {
   });
 }
 
-async function openDownloadTasks(homePage: Page): Promise<void> {
+export async function openDownloadTasks(homePage: Page): Promise<void> {
   const clicked = await homePage.locator(TRANSPORT_TASK_BOX_SELECTOR)
     .evaluateAll((boxes, downloadText) => {
       const taskBox = boxes.find((box) => {
@@ -76,7 +76,7 @@ async function openDownloadTasks(homePage: Page): Promise<void> {
   });
 }
 
-async function selectDownloadTaskTab(
+export async function selectDownloadTaskTab(
   homePage: Page,
   state: QuarkDownloadTaskState,
 ): Promise<void> {
