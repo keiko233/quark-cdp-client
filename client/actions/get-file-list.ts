@@ -130,69 +130,75 @@ export async function navigateToPath(
 
 async function openPathSegment(homePage: Page, segment: string): Promise<void> {
   const scrollContainer = getScrollContainer(homePage);
-  const startedAt = Date.now();
+  const MAX_RETRIES = 20;
+  const RETRY_DELAY_MS = 500;
 
   await scrollContainer.evaluate((element) => {
     element.scrollTop = 0;
   });
   await waitForFileListReady(homePage);
 
-  while (Date.now() - startedAt < FILE_LIST_READY_TIMEOUT) {
-    const visibleRowIndex = await findVisibleRowIndex(homePage, segment);
-    if (visibleRowIndex >= 0) {
-      await homePage.locator(TABLE_ROW_SELECTOR)
-        .nth(visibleRowIndex)
-        .evaluate((row) => {
-          const MouseEventCtor = (window as unknown as {
-            MouseEvent: new (
-              type: string,
-              eventInitDict?: {
-                bubbles?: boolean;
-                cancelable?: boolean;
-                view?: unknown;
-              },
-            ) => Event;
-          }).MouseEvent;
-
-          row.dispatchEvent(
-            new MouseEventCtor("dblclick", {
-              bubbles: true,
-              cancelable: true,
-              view: window,
-            }),
-          );
-        });
-
-      await homePage.locator(BREADCRUMB_SELECTOR).filter({ hasText: segment })
-        .first()
-        .waitFor({
-          state: "visible",
-          timeout: 10_000,
-        });
-      return;
-    }
-
-    const scrollState = await scrollContainer.evaluate((element) => {
-      const before = element.scrollTop;
-      element.scrollTop = Math.min(
-        element.scrollTop + element.clientHeight,
-        element.scrollHeight,
-      );
-
-      return {
-        before,
-        after: element.scrollTop,
-      };
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    await scrollContainer.evaluate((element) => {
+      element.scrollTop = 0;
     });
 
-    if (scrollState.after === scrollState.before) {
-      await waitForFileListReady(homePage);
-      await scrollContainer.evaluate((element) => {
-        element.scrollTop = 0;
+    while (true) {
+      const visibleRowIndex = await findVisibleRowIndex(homePage, segment);
+      if (visibleRowIndex >= 0) {
+        await homePage.locator(TABLE_ROW_SELECTOR)
+          .nth(visibleRowIndex)
+          .evaluate((row) => {
+            const MouseEventCtor = (window as unknown as {
+              MouseEvent: new (
+                type: string,
+                eventInitDict?: {
+                  bubbles?: boolean;
+                  cancelable?: boolean;
+                  view?: unknown;
+                },
+              ) => Event;
+            }).MouseEvent;
+
+            row.dispatchEvent(
+              new MouseEventCtor("dblclick", {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+              }),
+            );
+          });
+
+        await homePage.locator(BREADCRUMB_SELECTOR).filter({ hasText: segment })
+          .first()
+          .waitFor({
+            state: "visible",
+            timeout: 10_000,
+          });
+        return;
+      }
+
+      const scrollState = await scrollContainer.evaluate((element) => {
+        const before = element.scrollTop;
+        element.scrollTop = Math.min(
+          element.scrollTop + element.clientHeight,
+          element.scrollHeight,
+        );
+
+        return {
+          before,
+          after: element.scrollTop,
+        };
       });
-    } else {
+
+      if (scrollState.after === scrollState.before) {
+        break;
+      }
+
       await homePage.waitForTimeout(150);
     }
+
+    await homePage.waitForTimeout(RETRY_DELAY_MS);
   }
 
   throw new Error(`Path segment not found: ${segment}`);
