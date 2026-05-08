@@ -10,12 +10,21 @@ A Deno service that connects to a browser over CDP and exposes a small HTTP API 
 | `RECONNECT_INTERVAL_MS` | `5000` |
 | `LOG_LEVEL` | `trace` |
 | `SERVER_PORT` | `3000` |
+| `CDP_FORWARD_HOST` | `quark-docker` |
+| `CDP_FORWARD_PORT` | `9222` |
+| `CDP_FORWARD_LOCAL_PORT` | `9222` |
 
-In Docker Compose, use the service name:
+In Docker Compose, run a local TCP forwarder inside `quark-cdp-client` so the
+loopback CDP websocket returned by Chromium stays reachable from the client:
 
 ```yaml
-environment:
-  CDP_URL: http://quark-docker:9222
+quark-cdp-client:
+  build: .
+  environment:
+    CDP_URL: http://127.0.0.1:${CDP_FORWARD_LOCAL_PORT:-9222}
+    CDP_FORWARD_HOST: ${CDP_FORWARD_HOST:-quark-docker}
+    CDP_FORWARD_PORT: ${CDP_FORWARD_PORT:-9222}
+    CDP_FORWARD_LOCAL_PORT: ${CDP_FORWARD_LOCAL_PORT:-9222}
 ```
 
 ## Local
