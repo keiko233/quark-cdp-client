@@ -1,27 +1,22 @@
 import type { Page } from "playwright";
-import { getBrowser } from "../browser.ts";
-import { QUARK_HOME_PAGE_URL } from "../../consts.ts";
-import { findPageByUrl } from "../../libs/utils.ts";
+import type {
+  QuarkDownloadStatus,
+  QuarkDownloadStatusMode,
+  QuarkDownloadTask,
+  QuarkDownloadTaskState,
+} from "../../libs/schemas.ts";
+import { log } from "../../libs/logger.ts";
+import { getHomePage, scrollAndCollect } from "../page-utils.ts";
 import { normalizeFileListText } from "./get-file-list.ts";
 
-export type QuarkDownloadTaskState = "running" | "complete";
-export type QuarkDownloadStatusMode = QuarkDownloadTaskState | "all";
+export type {
+  QuarkDownloadStatus,
+  QuarkDownloadStatusMode,
+  QuarkDownloadTask,
+  QuarkDownloadTaskState,
+};
 
-export interface QuarkDownloadTask {
-  state: QuarkDownloadTaskState;
-  name: string;
-  size: string;
-  progress: string;
-  speed: string;
-  remaining: string;
-  completedAt: string;
-}
-
-export interface QuarkDownloadStatus {
-  tasks: QuarkDownloadTask[];
-}
-
-const DOWNLOAD_TEXT = "\u4e0b\u8f7d";
+const DOWNLOAD_TEXT = "下载";
 const USER_DIVIDER_SELECTOR = "div.user-divider";
 const TRANSPORT_TASK_BOX_SELECTOR = "div.transport-task-box";
 const TABS_NAV_SELECTOR = "div.ant-tabs-nav-list";
@@ -29,31 +24,41 @@ const TASK_LIST_SELECTOR = "div.task-list-container";
 const TASK_ITEM_SELECTOR = "div.task-item";
 const TASK_PANEL_READY_TIMEOUT = 3_000;
 
+export { TRANSPORT_TASK_BOX_SELECTOR, TABS_NAV_SELECTOR, TASK_LIST_SELECTOR, TASK_ITEM_SELECTOR };
+
 export async function openTransportCenter(homePage: Page): Promise<void> {
+  const alreadyOpen = await homePage.locator(TRANSPORT_TASK_BOX_SELECTOR).first()
+    .isVisible()
+    .catch(() => false);
+
+  if (alreadyOpen) {
+    log.trace("openTransportCenter: already visible, skipping click");
+    return;
+  }
+
+  log.debug("openTransportCenter: opening transport center");
   const userDivider = homePage.locator(USER_DIVIDER_SELECTOR).first();
-  await userDivider.waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
+  await userDivider.waitFor({ state: "visible", timeout: 10_000 });
 
   const clicked = await userDivider.evaluate((element) => {
     const transportItem = element.children.item(1)?.querySelector("div");
-
     transportItem?.click();
     return Boolean(transportItem);
   });
 
-  if (!clicked) {
-    throw new Error("Transport nav item not found");
-  }
+  if (!clicked) throw new Error("Transport nav item not found");
 
   await homePage.locator(TRANSPORT_TASK_BOX_SELECTOR).first().waitFor({
     state: "visible",
     timeout: 10_000,
   });
+
+  log.trace("openTransportCenter: transport box visible");
 }
 
 export async function openDownloadTasks(homePage: Page): Promise<void> {
+  log.trace("openDownloadTasks: clicking download task box");
+
   const clicked = await homePage.locator(TRANSPORT_TASK_BOX_SELECTOR)
     .evaluateAll((boxes, downloadText) => {
       const taskBox = boxes.find((box) => {
@@ -61,14 +66,11 @@ export async function openDownloadTasks(homePage: Page): Promise<void> {
           ?.textContent ?? "";
         return title.replace(/\s+/g, " ").trim() === downloadText;
       });
-
       (taskBox as { click?: () => void } | undefined)?.click?.();
       return Boolean(taskBox);
     }, DOWNLOAD_TEXT);
 
-  if (!clicked) {
-    throw new Error("Download task box not found");
-  }
+  if (!clicked) throw new Error("Download task box not found");
 
   await homePage.locator(TABS_NAV_SELECTOR).first().waitFor({
     state: "visible",
@@ -84,10 +86,18 @@ export async function selectDownloadTaskTab(
     `${TABS_NAV_SELECTOR} div.ant-tabs-tab[data-node-key="${state}"]`,
   ).first();
 
-  await tab.waitFor({
-    state: "attached",
-    timeout: 10_000,
-  });
+  await tab.waitFor({ state: "attached", timeout: 10_000 });
+
+  const isActive = await tab.evaluate(
+    (el) => el.classList.contains("ant-tabs-tab-active"),
+  ).catch(() => false);
+
+  if (isActive) {
+    log.trace(`selectDownloadTaskTab: "${state}" already active, skipping`);
+    return;
+  }
+
+  log.debug(`selectDownloadTaskTab: selecting "${state}" tab`);
   await tab.evaluate((element) => {
     (element as { click: () => void }).click();
   });
@@ -103,7 +113,6 @@ async function waitForTaskPanelSettled(homePage: Page): Promise<void> {
       await homePage.waitForTimeout(300);
       return;
     }
-
     await homePage.waitForTimeout(100);
   }
 }
@@ -116,21 +125,10 @@ async function readCurrentTabTasks(
     .evaluateAll((items, taskState) => {
       const normalize = (value: string | null): string =>
         (value ?? "").replace(/\s+/g, " ").trim();
-      const parseSize = (
-        value: string,
-      ): { size: string; progress: string } => {
+      const parseSize = (value: string): { size: string; progress: string } => {
         const match = value.match(/^(.*?)\s*\((.*?)\)$/);
-        if (!match) {
-          return {
-            size: value,
-            progress: "",
-          };
-        }
-
-        return {
-          size: match[1]?.trim() ?? "",
-          progress: match[2]?.trim() ?? "",
-        };
+        if (!match) return { size: value, progress: "" };
+        return { size: match[1]?.trim() ?? "", progress: match[2]?.trim() ?? "" };
       };
 
       return items.map((item) => {
@@ -158,6 +156,10 @@ async function readCurrentTabTasks(
     }, state);
 }
 
+function getDownloadTaskKey(task: QuarkDownloadTask): string {
+  return [task.state, task.name, task.size, task.completedAt].join(" ");
+}
+
 async function readDownloadTasks(
   homePage: Page,
   state: QuarkDownloadTaskState,
@@ -165,80 +167,23 @@ async function readDownloadTasks(
   await selectDownloadTaskTab(homePage, state);
 
   const taskList = homePage.locator(TASK_LIST_SELECTOR).first();
-  if (!await taskList.isVisible()) {
-    return [];
-  }
+  if (!await taskList.isVisible()) return [];
 
-  const tasks = new Map<string, QuarkDownloadTask>();
-
-  await taskList.evaluate((element) => {
-    element.scrollTop = 0;
+  return scrollAndCollect<QuarkDownloadTask>({
+    page: homePage,
+    scrollContainer: taskList,
+    readVisible: () => readCurrentTabTasks(homePage, state),
+    getKey: getDownloadTaskKey,
+    label: `downloadTasks-${state}`,
   });
-
-  let stableRounds = 0;
-  let lastScrollTop = -1;
-
-  while (stableRounds < 2) {
-    const visibleTasks = await readCurrentTabTasks(homePage, state);
-    const previousSize = tasks.size;
-
-    for (const task of visibleTasks) {
-      tasks.set(getDownloadTaskKey(task), task);
-    }
-
-    const scrollState = await taskList.evaluate((element) => {
-      const currentTop = element.scrollTop;
-      element.scrollTop = Math.min(
-        element.scrollTop + element.clientHeight,
-        element.scrollHeight,
-      );
-
-      return {
-        atBottom: element.scrollTop === currentTop ||
-          element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
-        scrollTop: element.scrollTop,
-      };
-    });
-
-    if (
-      tasks.size === previousSize && scrollState.scrollTop === lastScrollTop
-    ) {
-      stableRounds++;
-    } else {
-      stableRounds = scrollState.atBottom ? stableRounds + 1 : 0;
-    }
-
-    lastScrollTop = scrollState.scrollTop;
-    await homePage.waitForTimeout(150);
-  }
-
-  return [...tasks.values()];
-}
-
-function getDownloadTaskKey(task: QuarkDownloadTask): string {
-  return [
-    task.state,
-    task.name,
-    task.size,
-    task.completedAt,
-  ].join("\u0000");
 }
 
 export async function getDownloadStatus(
   mode: QuarkDownloadStatusMode = "running",
 ): Promise<QuarkDownloadStatus> {
-  const browser = getBrowser();
+  log.debug(`getDownloadStatus: mode=${mode}`);
 
-  const context = browser.contexts()[0];
-  if (!context) {
-    throw new Error("No BrowserContext found");
-  }
-
-  const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
-  if (!homePage) {
-    throw new Error(`Home page not found: ${QUARK_HOME_PAGE_URL}`);
-  }
-
+  const homePage = getHomePage();
   await homePage.bringToFront();
   await homePage.waitForLoadState("domcontentloaded");
   await openTransportCenter(homePage);
@@ -249,12 +194,11 @@ export async function getDownloadStatus(
     ? ["running", "complete"]
     : [normalizedMode === "complete" ? "complete" : "running"];
 
-  const tasks = [];
+  const tasks: QuarkDownloadTask[] = [];
   for (const state of states) {
     tasks.push(...await readDownloadTasks(homePage, state));
   }
 
-  return {
-    tasks,
-  };
+  log.debug(`getDownloadStatus: ${tasks.length} tasks`);
+  return { tasks };
 }

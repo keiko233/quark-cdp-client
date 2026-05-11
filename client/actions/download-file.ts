@@ -1,7 +1,7 @@
 import type { Page } from "playwright";
-import { getBrowser } from "../browser.ts";
-import { QUARK_HOME_PAGE_URL } from "../../consts.ts";
-import { findPageByUrl } from "../../libs/utils.ts";
+import type { QuarkFileList, QuarkFileListItem } from "../../libs/schemas.ts";
+import { log } from "../../libs/logger.ts";
+import { getHomePage } from "../page-utils.ts";
 import {
   findVisibleRowIndex,
   getScrollContainer,
@@ -12,6 +12,8 @@ import {
   TABLE_ROW_SELECTOR,
   waitForFileListReady,
 } from "./get-file-list.ts";
+
+export type { QuarkFileList, QuarkFileListItem };
 
 export interface QuarkDownloadFileResult {
   name: string;
@@ -25,9 +27,7 @@ function getTargetFromPath(
   const segments = parsePathSegments(path);
   const fileName = segments.at(-1);
 
-  if (!fileName) {
-    throw new Error("Download file path is empty");
-  }
+  if (!fileName) throw new Error("Download file path is empty");
 
   return {
     parentPath: segments.slice(0, -1).join("/"),
@@ -39,8 +39,8 @@ async function scrollFileIntoView(
   homePage: Page,
   fileName: string,
 ): Promise<number> {
+  log.trace(`scrollFileIntoView: looking for "${fileName}"`);
   const scrollContainer = getScrollContainer(homePage);
-
   await scrollContainer.evaluate((element) => {
     element.scrollTop = 0;
   });
@@ -48,6 +48,7 @@ async function scrollFileIntoView(
   while (true) {
     const visibleRowIndex = await findVisibleRowIndex(homePage, fileName);
     if (visibleRowIndex >= 0) {
+      log.trace(`scrollFileIntoView: found at index ${visibleRowIndex}`);
       return visibleRowIndex;
     }
 
@@ -57,17 +58,16 @@ async function scrollFileIntoView(
         element.scrollTop + element.clientHeight,
         element.scrollHeight,
       );
-
-      return {
-        before,
-        after: element.scrollTop,
-      };
+      return { before, after: element.scrollTop };
     });
 
     if (scrollState.after === scrollState.before) {
       throw new Error(`File not found: ${fileName}`);
     }
 
+    log.trace(
+      `scrollFileIntoView: scrolling, looking for "${fileName}"`,
+    );
     await homePage.waitForTimeout(150);
   }
 }
@@ -76,6 +76,7 @@ async function clickDownloadButton(
   homePage: Page,
   visibleRowIndex: number,
 ): Promise<void> {
+  log.trace(`clickDownloadButton: row index=${visibleRowIndex}`);
   const row = homePage.locator(TABLE_ROW_SELECTOR).nth(visibleRowIndex);
   const fileNameCell = row.locator("td.td-file.file-name").first();
   await fileNameCell.hover();
@@ -85,11 +86,7 @@ async function clickDownloadButton(
     .locator(".hover-oper > .hover-oper-list > .hover-oper-item")
     .nth(DOWNLOAD_BUTTON_INDEX);
 
-  await downloadButton.waitFor({
-    state: "attached",
-    timeout: 5_000,
-  });
-
+  await downloadButton.waitFor({ state: "attached", timeout: 5_000 });
   await downloadButton.evaluate((element) => {
     (element as { click: () => void }).click();
   });
@@ -98,18 +95,10 @@ async function clickDownloadButton(
 export async function downloadFile(
   path: string,
 ): Promise<QuarkDownloadFileResult> {
-  const browser = getBrowser();
-  const context = browser.contexts()[0];
-  if (!context) {
-    throw new Error("No BrowserContext found");
-  }
-
-  const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
-  if (!homePage) {
-    throw new Error(`Home page not found: ${QUARK_HOME_PAGE_URL}`);
-  }
+  log.debug(`downloadFile: path="${path}"`);
 
   const target = getTargetFromPath(path);
+  const homePage = getHomePage();
   await homePage.bringToFront();
   await homePage.waitForLoadState("domcontentloaded");
 
@@ -126,7 +115,6 @@ export async function downloadFile(
 
   await clickDownloadButton(homePage, visibleRowIndex);
 
-  return {
-    name: target.fileName,
-  };
+  log.debug(`downloadFile: queued "${target.fileName}"`);
+  return { name: target.fileName };
 }

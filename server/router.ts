@@ -2,33 +2,45 @@ import { getBrowser, getBrowserQueueStatus } from "../client/browser.ts";
 import {
   downloadFile,
   getDownloadStatus,
-  setDownloadStatus,
   getFileList,
   getLoginQRCode,
   getLoginStatus,
   getUserInfo,
+  setDownloadStatus,
 } from "../client/actions/index.ts";
+import {
+  BrowserQueueStatusSchema,
+  QuarkDownloadStatusModeSchema,
+  QuarkDownloadStatusSchema,
+  QuarkDownloadTaskOperationSchema,
+  QuarkFileListSchema,
+} from "../libs/schemas.ts";
 import z from "zod";
 import { baseProcedure } from "./errors.ts";
+
+// deno-lint-ignore no-explicit-any
+function unwrap<T>(result: any): T {
+  // better-result's match: ok branch returns value, err branch throws
+  // deno-lint-ignore no-explicit-any
+  return (result as { match: (...args: any[]) => any }).match({
+    ok: (v: T) => v,
+    err: (e: Error): never => {
+      throw e;
+    },
+  }) as T;
+}
 
 export const router = {
   version: baseProcedure
     .route({ method: "GET", path: "/version" })
     .handler(() => {
       const browser = getBrowser();
-      return {
-        version: browser.version(),
-      };
+      return { version: browser.version() };
     }),
 
   getQueueStatus: baseProcedure
     .route({ method: "GET", path: "/get-queue-status" })
-    .output(z.object({
-      running: z.boolean(),
-      current: z.string().nullable(),
-      queued: z.number().int().nonnegative(),
-      total: z.number().int().nonnegative(),
-    }))
+    .output(BrowserQueueStatusSchema)
     .handler(() => {
       return getBrowserQueueStatus();
     }),
@@ -37,30 +49,26 @@ export const router = {
     .route({ method: "GET", path: "/get-login-qrcode" })
     .output(z.instanceof(File))
     .handler(async () => {
-      const image = await getLoginQRCode();
-      const png = Uint8Array.from(image);
-
-      return new File([png], "login-qrcode.png", {
-        type: "image/png",
-      });
+      const image = unwrap<Uint8Array>(await getLoginQRCode());
+      return new File(
+        [Uint8Array.from(image as Iterable<number>)],
+        "login-qrcode.png",
+        { type: "image/png" },
+      );
     }),
 
   getLoginStatus: baseProcedure
     .route({ method: "GET", path: "/get-login-status" })
-    .output(z.object({
-      loggedIn: z.boolean(),
-    }))
+    .output(z.object({ loggedIn: z.boolean() }))
     .handler(async () => {
-      return await getLoginStatus();
+      return unwrap(await getLoginStatus());
     }),
 
   getUserInfo: baseProcedure
     .route({ method: "GET", path: "/get-user-info" })
-    .output(z.object({
-      capacity: z.string(),
-    }))
+    .output(z.object({ capacity: z.string() }))
     .handler(async () => {
-      return await getUserInfo();
+      return unwrap(await getUserInfo());
     }),
 
   getFileList: baseProcedure
@@ -69,24 +77,12 @@ export const router = {
       path: "/get-file-list",
       inputStructure: "detailed",
     })
-    .input(
-      z.object({
-        query: z.object({
-          path: z.string().optional(),
-        }).optional(),
-      }),
-    )
-    .output(z.object({
-      path: z.array(z.string()),
-      items: z.array(z.object({
-        name: z.string(),
-        size: z.string(),
-        type: z.string(),
-        updatedAt: z.string(),
-      })),
+    .input(z.object({
+      query: z.object({ path: z.string().optional() }).optional(),
     }))
+    .output(QuarkFileListSchema)
     .handler(async ({ input }) => {
-      return await getFileList(input.query?.path);
+      return unwrap(await getFileList(input.query?.path));
     }),
 
   downloadFile: baseProcedure
@@ -95,18 +91,10 @@ export const router = {
       path: "/download-file",
       inputStructure: "detailed",
     })
-    .input(
-      z.object({
-        query: z.object({
-          path: z.string(),
-        }),
-      }),
-    )
-    .output(z.object({
-      name: z.string(),
-    }))
+    .input(z.object({ query: z.object({ path: z.string() }) }))
+    .output(z.object({ name: z.string() }))
     .handler(async ({ input }) => {
-      return await downloadFile(input.query.path);
+      return unwrap(await downloadFile(input.query.path));
     }),
 
   getDownloadStatus: baseProcedure
@@ -115,26 +103,14 @@ export const router = {
       path: "/get-download-status",
       inputStructure: "detailed",
     })
-    .input(
-      z.object({
-        query: z.object({
-          status: z.enum(["running", "complete", "all"]).optional(),
-        }).optional(),
-      }),
-    )
-    .output(z.object({
-      tasks: z.array(z.object({
-        state: z.enum(["running", "complete"]),
-        name: z.string(),
-        size: z.string(),
-        progress: z.string(),
-        speed: z.string(),
-        remaining: z.string(),
-        completedAt: z.string(),
-      })),
+    .input(z.object({
+      query: z.object({
+        status: QuarkDownloadStatusModeSchema.optional(),
+      }).optional(),
     }))
+    .output(QuarkDownloadStatusSchema)
     .handler(async ({ input }) => {
-      return await getDownloadStatus(input.query?.status);
+      return unwrap(await getDownloadStatus(input.query?.status));
     }),
 
   setDownloadStatus: baseProcedure
@@ -143,21 +119,16 @@ export const router = {
       path: "/set-download-status",
       inputStructure: "detailed",
     })
-    .input(
-      z.object({
-        body: z.object({
-          taskName: z.string(),
-          operation: z.enum(["resume", "pause", "delete"]),
-        }),
+    .input(z.object({
+      body: z.object({
+        taskName: z.string(),
+        operation: QuarkDownloadTaskOperationSchema,
       }),
-    )
-    .output(z.object({
-      success: z.boolean(),
     }))
+    .output(z.object({ success: z.boolean() }))
     .handler(async ({ input }) => {
-      return await setDownloadStatus(
-        input.body.taskName,
-        input.body.operation,
+      return unwrap(
+        await setDownloadStatus(input.body.taskName, input.body.operation),
       );
     }),
 };

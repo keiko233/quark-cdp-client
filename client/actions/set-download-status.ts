@@ -1,21 +1,20 @@
 import type { Page } from "playwright";
-import { getBrowser } from "../browser.ts";
-import { QUARK_HOME_PAGE_URL } from "../../consts.ts";
-import { findPageByUrl } from "../../libs/utils.ts";
+import type { QuarkDownloadTaskOperation } from "../../libs/schemas.ts";
+import { log } from "../../libs/logger.ts";
+import { getHomePage, hoverAndClick } from "../page-utils.ts";
 import {
-  openTransportCenter,
   openDownloadTasks,
+  openTransportCenter,
   selectDownloadTaskTab,
+  TASK_ITEM_SELECTOR,
+  TASK_LIST_SELECTOR,
 } from "./get-download-status.ts";
 
-export type QuarkDownloadTaskOperation = "resume" | "pause" | "delete";
+export type { QuarkDownloadTaskOperation };
 
 export interface QuarkSetDownloadStatusResult {
   success: boolean;
 }
-
-const TASK_LIST_SELECTOR = "div.task-list-container";
-const TASK_ITEM_SELECTOR = "div.task-item";
 
 const OPERATION_SELECTOR: Record<QuarkDownloadTaskOperation, string> = {
   resume: ".task-op-resume",
@@ -30,9 +29,7 @@ async function findAndOperateTask(
 ): Promise<boolean> {
   const taskList = homePage.locator(TASK_LIST_SELECTOR).first();
 
-  if (!await taskList.isVisible()) {
-    return false;
-  }
+  if (!await taskList.isVisible()) return false;
 
   await taskList.evaluate((el) => {
     el.scrollTop = 0;
@@ -50,13 +47,14 @@ async function findAndOperateTask(
       const rawName = await item.locator(".task-name-text").textContent();
       const normalizedName = (rawName ?? "").replace(/\s+/g, " ").trim();
 
+      log.trace(`findAndOperateTask: checking item "${normalizedName}"`);
+
       if (normalizedName !== taskName) continue;
 
-      await item.hover();
-
       const opButton = item.locator(OPERATION_SELECTOR[operation]).first();
-      if (await opButton.isVisible()) {
-        await opButton.evaluate((el) => (el as HTMLElement).click());
+      if (await opButton.isVisible().catch(() => false)) {
+        await hoverAndClick(item, opButton);
+        log.debug(`findAndOperateTask: operated task "${taskName}"`);
         return true;
       }
 
@@ -69,7 +67,6 @@ async function findAndOperateTask(
         element.scrollTop + element.clientHeight,
         element.scrollHeight,
       );
-
       return {
         atBottom: element.scrollTop === currentTop ||
           element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
@@ -94,18 +91,9 @@ export async function setDownloadStatus(
   taskName: string,
   operation: QuarkDownloadTaskOperation,
 ): Promise<QuarkSetDownloadStatusResult> {
-  const browser = getBrowser();
+  log.debug(`setDownloadStatus: task="${taskName}" op=${operation}`);
 
-  const context = browser.contexts()[0];
-  if (!context) {
-    throw new Error("No BrowserContext found");
-  }
-
-  const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
-  if (!homePage) {
-    throw new Error(`Home page not found: ${QUARK_HOME_PAGE_URL}`);
-  }
-
+  const homePage = getHomePage();
   await homePage.bringToFront();
   await homePage.waitForLoadState("domcontentloaded");
   await openTransportCenter(homePage);
@@ -113,6 +101,10 @@ export async function setDownloadStatus(
   await selectDownloadTaskTab(homePage, "running");
 
   const success = await findAndOperateTask(homePage, taskName, operation);
+
+  if (!success) {
+    log.warn(`setDownloadStatus: task not found "${taskName}"`);
+  }
 
   return { success };
 }

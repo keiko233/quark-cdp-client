@@ -1,24 +1,20 @@
-import { getBrowser } from "../browser.ts";
 import { QUARK_HOME_PAGE_URL, QUARK_LOGIN_PAGE_URL } from "../../consts.ts";
 import { findPageByUrl } from "../../libs/utils.ts";
+import { log } from "../../libs/logger.ts";
+import { getBrowserContext } from "../page-utils.ts";
 
 export async function getLoginStatus() {
-  const browser = getBrowser();
+  log.debug("getLoginStatus: start");
 
-  const context = browser.contexts()[0];
-  if (!context) {
-    throw new Error("No BrowserContext found");
-  }
-
+  const context = getBrowserContext();
   const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
+
   if (!homePage) {
     const loginPage = findPageByUrl(context, QUARK_LOGIN_PAGE_URL);
     if (loginPage) {
-      return {
-        loggedIn: false,
-      };
+      log.debug("getLoginStatus: login page found, not logged in");
+      return { loggedIn: false };
     }
-
     throw new Error(
       `Login status page not found: ${QUARK_HOME_PAGE_URL} or ${QUARK_LOGIN_PAGE_URL}`,
     );
@@ -28,17 +24,14 @@ export async function getLoginStatus() {
   await homePage.waitForLoadState("domcontentloaded");
 
   const memberContent = homePage.locator(".member-content-container").first();
-  await memberContent.waitFor({
-    state: "visible",
-    timeout: 10_000,
-  });
+  await memberContent.waitFor({ state: "visible", timeout: 10_000 });
 
   const loginButton = memberContent
     .locator("div.member-login")
     .filter({ hasText: "立即登录" })
     .first();
 
-  return {
-    loggedIn: await loginButton.count() === 0,
-  };
+  const loggedIn = await loginButton.count() === 0;
+  log.debug(`getLoginStatus: loggedIn=${loggedIn}`);
+  return { loggedIn };
 }

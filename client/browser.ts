@@ -1,17 +1,13 @@
-import type { Browser } from "npm:playwright";
+import type { Browser } from "playwright";
+import PQueue from "p-queue";
 import { log } from "../libs/logger.ts";
+import type { BrowserQueueStatus } from "../libs/schemas.ts";
 
 let _browser: Browser | null = null;
-let browserOperationQueue = Promise.resolve();
-let queuedBrowserOperationCount = 0;
+const queue = new PQueue({ concurrency: 1 });
 let activeBrowserOperationLabel: string | null = null;
 
-export interface BrowserQueueStatus {
-  running: boolean;
-  current: string | null;
-  queued: number;
-  total: number;
-}
+export type { BrowserQueueStatus };
 
 export function setBrowser(browser: Browser | null): void {
   _browser = browser;
@@ -26,12 +22,11 @@ export function getBrowser(): Browser {
 
 export function getBrowserQueueStatus(): BrowserQueueStatus {
   const running = activeBrowserOperationLabel !== null;
-
   return {
     running,
     current: activeBrowserOperationLabel,
-    queued: queuedBrowserOperationCount,
-    total: queuedBrowserOperationCount + (running ? 1 : 0),
+    queued: queue.size,
+    total: queue.size + (running ? 1 : 0),
   };
 }
 
@@ -39,25 +34,19 @@ export async function enqueueBrowserOperation<T>(
   operation: () => Promise<T>,
   label = "anonymous",
 ): Promise<T> {
-  queuedBrowserOperationCount++;
-
-  const runOperation = browserOperationQueue.then(async () => {
-    queuedBrowserOperationCount--;
+  log.trace(`queue enqueue: ${label} (waiting: ${queue.size})`);
+  return queue.add(async () => {
     activeBrowserOperationLabel = label;
-    log.trace(`browser queue start: ${label}`);
-
+    log.trace(`queue start: ${label}`);
+    const t0 = Date.now();
     try {
       return await operation();
+    } catch (e) {
+      log.debug(`queue error: ${label}: ${(e as Error).message}`);
+      throw e;
     } finally {
       activeBrowserOperationLabel = null;
-      log.trace(`browser queue end: ${label}`);
+      log.trace(`queue end: ${label} (${Date.now() - t0}ms)`);
     }
-  });
-
-  browserOperationQueue = runOperation.then(
-    () => undefined,
-    () => undefined,
-  );
-
-  return await runOperation;
+  }) as Promise<T>;
 }
