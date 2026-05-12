@@ -4,6 +4,12 @@ import { findPageByUrl } from "../libs/utils.ts";
 import { QUARK_HOME_PAGE_URL } from "../consts.ts";
 import { log } from "../libs/logger.ts";
 
+/** Returns the hash path of the page's URL, without search params (e.g. "/list/all"). */
+export function getPageRoute(page: Page): string {
+  const hash = page.url().split("#")[1] ?? "";
+  return hash.split("?")[0];
+}
+
 export function getBrowserContext(): BrowserContext {
   const context = getBrowser().contexts()[0];
   if (!context) throw new Error("No BrowserContext found");

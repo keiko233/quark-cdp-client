@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { QuarkFileList, QuarkFileListItem } from "../../libs/schemas.ts";
 import { log } from "../../libs/logger.ts";
 import { TtlCache } from "../cache.ts";
-import { getHomePage, scrollAndCollect } from "../page-utils.ts";
+import { getHomePage, getPageRoute, scrollAndCollect } from "../page-utils.ts";
 import { createAction } from "./create-action.ts";
 
 export type { QuarkFileList, QuarkFileListItem };
@@ -17,8 +17,7 @@ export const TABLE_SCROLL_SELECTOR = "div.ant-table-body";
 const HOME_TEXT = "首页";
 const ROOT_PATH_TEXT = "文件";
 const FILE_LIST_READY_TIMEOUT = 10_000;
-const HOME_NAV_SELECTED_SELECTOR =
-  "div.user-divider > :first-child .cloud-navigation-list.cloud-navigation-list-selected";
+const FILE_LIST_ROUTE = "/list";
 const fileListCache = new TtlCache<string, QuarkFileList>(30_000);
 
 type NavPlan =
@@ -44,21 +43,22 @@ function planNavigation(current: string[], target: string[]): NavPlan {
   return { action: "reset", segments: target };
 }
 
-function isHomeNavSelected(homePage: Page): Promise<boolean> {
-  return homePage.locator(HOME_NAV_SELECTED_SELECTOR).isVisible().catch(
-    () => false,
-  );
+function isHomeNavSelected(homePage: Page): boolean {
+  return getPageRoute(homePage).startsWith(FILE_LIST_ROUTE);
 }
 
 export async function resetToHome(homePage: Page): Promise<void> {
-  const isAtRoot = await homePage.locator(BREADCRUMB_SELECTOR).first()
-    .isVisible()
-    .then(async (visible) => {
-      if (!visible) return false;
-      const path = await readBreadcrumbPath(homePage);
-      return path.length === 0;
-    })
-    .catch(() => false);
+  const onListRoute = getPageRoute(homePage).startsWith(FILE_LIST_ROUTE);
+
+  const isAtRoot = onListRoute &&
+    await homePage.locator(BREADCRUMB_SELECTOR).first()
+      .isVisible()
+      .then(async (visible) => {
+        if (!visible) return false;
+        const path = await readBreadcrumbPath(homePage);
+        return path.length === 0;
+      })
+      .catch(() => false);
 
   if (isAtRoot) {
     log.trace("resetToHome: already at root, skipping navigation");
@@ -340,7 +340,7 @@ export const getFileList = createAction(
     await homePage.waitForLoadState("domcontentloaded");
 
     const targetSegments = path ? parsePathSegments(path) : [];
-    const homeNavActive = await isHomeNavSelected(homePage);
+    const homeNavActive = isHomeNavSelected(homePage);
 
     if (homeNavActive) {
       const currentPath = await readBreadcrumbPath(homePage).catch(() => null);

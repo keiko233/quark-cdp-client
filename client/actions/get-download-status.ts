@@ -9,7 +9,7 @@ import type {
 import { QuarkDownloadStatusModeSchema } from "../../libs/schemas.ts";
 import { log } from "../../libs/logger.ts";
 import { TtlCache } from "../cache.ts";
-import { getHomePage, scrollAndCollect } from "../page-utils.ts";
+import { getHomePage, getPageRoute, scrollAndCollect } from "../page-utils.ts";
 import { createAction } from "./create-action.ts";
 import { normalizeFileListText } from "./get-file-list.ts";
 
@@ -23,6 +23,7 @@ export type {
 const DOWNLOAD_TEXT = "下载";
 const USER_DIVIDER_SELECTOR = "div.user-divider";
 const TRANSPORT_TASK_BOX_SELECTOR = "div.transport-task-box";
+const TRANSPORT_ROUTE = "/transport";
 const TABS_NAV_SELECTOR = "div.ant-tabs-nav-list";
 const TASK_LIST_SELECTOR = "div.task-list-container";
 const TASK_ITEM_SELECTOR = "div.task-item";
@@ -37,13 +38,8 @@ export {
 };
 
 export async function openTransportCenter(homePage: Page): Promise<void> {
-  const alreadyOpen = await homePage.locator(TRANSPORT_TASK_BOX_SELECTOR)
-    .first()
-    .isVisible()
-    .catch(() => false);
-
-  if (alreadyOpen) {
-    log.trace("openTransportCenter: already visible, skipping click");
+  if (getPageRoute(homePage).startsWith(TRANSPORT_ROUTE)) {
+    log.trace("openTransportCenter: already on transport route, skipping click");
     return;
   }
 
