@@ -9,6 +9,7 @@ export type {
 } from "../../libs/schemas.ts";
 
 export type { QuarkDownloadFileResult } from "./download-file.ts";
+export type { QuarkImportShareLinkResult } from "./import-share-link.ts";
 export type { QuarkSetDownloadStatusResult } from "./set-download-status.ts";
 
 import { downloadFile } from "./download-file.ts";
@@ -17,6 +18,7 @@ import { getFileList } from "./get-file-list.ts";
 import { getLoginQRCode } from "./get-login-qrcode.ts";
 import { getLoginStatus } from "./get-login-status.ts";
 import { getUserInfo } from "./get-user-info.ts";
+import { importShareLink } from "./import-share-link.ts";
 import { setDownloadStatus } from "./set-download-status.ts";
 
 export { downloadFile } from "./download-file.ts";
@@ -25,6 +27,7 @@ export { getFileList } from "./get-file-list.ts";
 export { getLoginQRCode } from "./get-login-qrcode.ts";
 export { getLoginStatus } from "./get-login-status.ts";
 export { getUserInfo } from "./get-user-info.ts";
+export { importShareLink } from "./import-share-link.ts";
 export { setDownloadStatus } from "./set-download-status.ts";
 
 export const quarkActions = [
@@ -35,4 +38,5 @@ export const quarkActions = [
   downloadFile,
   getDownloadStatus,
   setDownloadStatus,
+  importShareLink,
 ] as const;

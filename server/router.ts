@@ -6,6 +6,7 @@ import {
   getLoginQRCode,
   getLoginStatus,
   getUserInfo,
+  importShareLink,
   setDownloadStatus,
 } from "../client/actions/index.ts";
 import {
@@ -154,5 +155,22 @@ export const router = {
       return unwrap(
         await setDownloadStatus(input.body.taskName, input.body.operation),
       );
+    }),
+
+  importShareLink: baseProcedure
+    .route({
+      method: "POST",
+      path: "/import-share-link",
+      inputStructure: "detailed",
+      description: importShareLink.metadata.description,
+    })
+    .input(z.object({
+      body: z.object({
+        url: z.string(),
+      }),
+    }))
+    .output(z.object({ url: z.string(), savedPath: z.string() }))
+    .handler(async ({ input }) => {
+      return unwrap(await importShareLink(input.body.url));
     }),
 };
