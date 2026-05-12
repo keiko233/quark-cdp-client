@@ -32,21 +32,33 @@ function unwrap<T>(result: any): T {
 
 export const router = {
   version: baseProcedure
-    .route({ method: "GET", path: "/version" })
+    .route({
+      method: "GET",
+      path: "/version",
+      description: "Get the Quark browser version",
+    })
     .handler(() => {
       const browser = getBrowser();
       return { version: browser.version() };
     }),
 
   getQueueStatus: baseProcedure
-    .route({ method: "GET", path: "/get-queue-status" })
+    .route({
+      method: "GET",
+      path: "/get-queue-status",
+      description: "Get the status of the browser operation queue",
+    })
     .output(BrowserQueueStatusSchema)
     .handler(() => {
       return getBrowserQueueStatus();
     }),
 
   getLoginQRCode: baseProcedure
-    .route({ method: "GET", path: "/get-login-qrcode" })
+    .route({
+      method: "GET",
+      path: "/get-login-qrcode",
+      description: getLoginQRCode.metadata.description,
+    })
     .output(z.instanceof(File))
     .handler(async () => {
       const image = unwrap<Uint8Array>(await getLoginQRCode());
@@ -58,14 +70,22 @@ export const router = {
     }),
 
   getLoginStatus: baseProcedure
-    .route({ method: "GET", path: "/get-login-status" })
+    .route({
+      method: "GET",
+      path: "/get-login-status",
+      description: getLoginStatus.metadata.description,
+    })
     .output(z.object({ loggedIn: z.boolean() }))
     .handler(async () => {
       return unwrap(await getLoginStatus());
     }),
 
   getUserInfo: baseProcedure
-    .route({ method: "GET", path: "/get-user-info" })
+    .route({
+      method: "GET",
+      path: "/get-user-info",
+      description: getUserInfo.metadata.description,
+    })
     .output(z.object({ capacity: z.string() }))
     .handler(async () => {
       return unwrap(await getUserInfo());
@@ -76,6 +96,7 @@ export const router = {
       method: "GET",
       path: "/get-file-list",
       inputStructure: "detailed",
+      description: getFileList.metadata.description,
     })
     .input(z.object({
       query: z.object({ path: z.string().optional() }).optional(),
@@ -90,6 +111,7 @@ export const router = {
       method: "GET",
       path: "/download-file",
       inputStructure: "detailed",
+      description: downloadFile.metadata.description,
     })
     .input(z.object({ query: z.object({ path: z.string() }) }))
     .output(z.object({ name: z.string() }))
@@ -102,6 +124,7 @@ export const router = {
       method: "GET",
       path: "/get-download-status",
       inputStructure: "detailed",
+      description: getDownloadStatus.metadata.description,
     })
     .input(z.object({
       query: z.object({
@@ -118,6 +141,7 @@ export const router = {
       method: "POST",
       path: "/set-download-status",
       inputStructure: "detailed",
+      description: setDownloadStatus.metadata.description,
     })
     .input(z.object({
       body: z.object({

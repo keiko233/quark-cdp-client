@@ -1,7 +1,10 @@
 import type { Page } from "playwright";
 import type { QuarkDownloadTaskOperation } from "../../libs/schemas.ts";
+import { QuarkDownloadTaskOperationSchema } from "../../libs/schemas.ts";
+import { z } from "zod";
 import { log } from "../../libs/logger.ts";
 import { getHomePage, hoverAndClick } from "../page-utils.ts";
+import { createAction } from "./create-action.ts";
 import {
   openDownloadTasks,
   openTransportCenter,
@@ -39,7 +42,9 @@ async function findAndOperateTask(
   let lastScrollTop = -1;
 
   while (stableRounds < 2) {
-    const items = homePage.locator(`${TASK_LIST_SELECTOR} ${TASK_ITEM_SELECTOR}`);
+    const items = homePage.locator(
+      `${TASK_LIST_SELECTOR} ${TASK_ITEM_SELECTOR}`,
+    );
     const count = await items.count();
 
     for (let i = 0; i < count; i++) {
@@ -87,24 +92,39 @@ async function findAndOperateTask(
   return false;
 }
 
-export async function setDownloadStatus(
-  taskName: string,
-  operation: QuarkDownloadTaskOperation,
-): Promise<QuarkSetDownloadStatusResult> {
-  log.debug(`setDownloadStatus: task="${taskName}" op=${operation}`);
+export const setDownloadStatus = createAction(
+  "setDownloadStatus",
+  async (
+    taskName: string,
+    operation: QuarkDownloadTaskOperation,
+  ): Promise<QuarkSetDownloadStatusResult> => {
+    log.debug(`setDownloadStatus: task="${taskName}" op=${operation}`);
 
-  const homePage = getHomePage();
-  await homePage.bringToFront();
-  await homePage.waitForLoadState("domcontentloaded");
-  await openTransportCenter(homePage);
-  await openDownloadTasks(homePage);
-  await selectDownloadTaskTab(homePage, "running");
+    const homePage = getHomePage();
+    await homePage.bringToFront();
+    await homePage.waitForLoadState("domcontentloaded");
+    await openTransportCenter(homePage);
+    await openDownloadTasks(homePage);
+    await selectDownloadTaskTab(homePage, "running");
 
-  const success = await findAndOperateTask(homePage, taskName, operation);
+    const success = await findAndOperateTask(homePage, taskName, operation);
 
-  if (!success) {
-    log.warn(`setDownloadStatus: task not found "${taskName}"`);
-  }
+    if (!success) {
+      log.warn(`setDownloadStatus: task not found "${taskName}"`);
+    }
 
-  return { success };
-}
+    return { success };
+  },
+  {
+    description: "Control a download task: pause, resume, or delete it",
+    mcp: {
+      name: "set_download_status",
+      input: z.object({
+        taskName: z.string().describe("Name of the download task"),
+        operation: QuarkDownloadTaskOperationSchema.describe(
+          "Operation to perform",
+        ),
+      }),
+    },
+  },
+);

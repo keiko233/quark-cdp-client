@@ -1,7 +1,9 @@
 import type { Page } from "playwright";
+import { z } from "zod";
 import type { QuarkFileList, QuarkFileListItem } from "../../libs/schemas.ts";
 import { log } from "../../libs/logger.ts";
 import { getHomePage } from "../page-utils.ts";
+import { createAction } from "./create-action.ts";
 import {
   findVisibleRowIndex,
   getScrollContainer,
@@ -92,29 +94,42 @@ async function clickDownloadButton(
   });
 }
 
-export async function downloadFile(
-  path: string,
-): Promise<QuarkDownloadFileResult> {
-  log.debug(`downloadFile: path="${path}"`);
+export const downloadFile = createAction(
+  "downloadFile",
+  async (
+    path: string,
+  ): Promise<QuarkDownloadFileResult> => {
+    log.debug(`downloadFile: path="${path}"`);
 
-  const target = getTargetFromPath(path);
-  const homePage = getHomePage();
-  await homePage.bringToFront();
-  await homePage.waitForLoadState("domcontentloaded");
+    const target = getTargetFromPath(path);
+    const homePage = getHomePage();
+    await homePage.bringToFront();
+    await homePage.waitForLoadState("domcontentloaded");
 
-  await resetToHome(homePage);
-  if (target.parentPath) {
-    await navigateToPath(homePage, target.parentPath);
-  }
-  await waitForFileListReady(homePage);
+    await resetToHome(homePage);
+    if (target.parentPath) {
+      await navigateToPath(homePage, target.parentPath);
+    }
+    await waitForFileListReady(homePage);
 
-  const visibleRowIndex = await scrollFileIntoView(
-    homePage,
-    normalizeFileListText(target.fileName),
-  );
+    const visibleRowIndex = await scrollFileIntoView(
+      homePage,
+      normalizeFileListText(target.fileName),
+    );
 
-  await clickDownloadButton(homePage, visibleRowIndex);
+    await clickDownloadButton(homePage, visibleRowIndex);
 
-  log.debug(`downloadFile: queued "${target.fileName}"`);
-  return { name: target.fileName };
-}
+    log.debug(`downloadFile: queued "${target.fileName}"`);
+    return { name: target.fileName };
+  },
+  {
+    description:
+      "Trigger download of a file from Quark cloud drive by its path",
+    mcp: {
+      name: "download_file",
+      input: z.object({
+        path: z.string().describe("File path in Quark drive"),
+      }),
+    },
+  },
+);

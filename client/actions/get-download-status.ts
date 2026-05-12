@@ -1,12 +1,16 @@
 import type { Page } from "playwright";
+import { z } from "zod";
 import type {
   QuarkDownloadStatus,
   QuarkDownloadStatusMode,
   QuarkDownloadTask,
   QuarkDownloadTaskState,
 } from "../../libs/schemas.ts";
+import { QuarkDownloadStatusModeSchema } from "../../libs/schemas.ts";
 import { log } from "../../libs/logger.ts";
+import { TtlCache } from "../cache.ts";
 import { getHomePage, scrollAndCollect } from "../page-utils.ts";
+import { createAction } from "./create-action.ts";
 import { normalizeFileListText } from "./get-file-list.ts";
 
 export type {
@@ -23,11 +27,18 @@ const TABS_NAV_SELECTOR = "div.ant-tabs-nav-list";
 const TASK_LIST_SELECTOR = "div.task-list-container";
 const TASK_ITEM_SELECTOR = "div.task-item";
 const TASK_PANEL_READY_TIMEOUT = 3_000;
+const downloadStatusCache = new TtlCache<string, QuarkDownloadStatus>(5_000);
 
-export { TRANSPORT_TASK_BOX_SELECTOR, TABS_NAV_SELECTOR, TASK_LIST_SELECTOR, TASK_ITEM_SELECTOR };
+export {
+  TABS_NAV_SELECTOR,
+  TASK_ITEM_SELECTOR,
+  TASK_LIST_SELECTOR,
+  TRANSPORT_TASK_BOX_SELECTOR,
+};
 
 export async function openTransportCenter(homePage: Page): Promise<void> {
-  const alreadyOpen = await homePage.locator(TRANSPORT_TASK_BOX_SELECTOR).first()
+  const alreadyOpen = await homePage.locator(TRANSPORT_TASK_BOX_SELECTOR)
+    .first()
     .isVisible()
     .catch(() => false);
 
@@ -128,7 +139,10 @@ async function readCurrentTabTasks(
       const parseSize = (value: string): { size: string; progress: string } => {
         const match = value.match(/^(.*?)\s*\((.*?)\)$/);
         if (!match) return { size: value, progress: "" };
-        return { size: match[1]?.trim() ?? "", progress: match[2]?.trim() ?? "" };
+        return {
+          size: match[1]?.trim() ?? "",
+          progress: match[2]?.trim() ?? "",
+        };
       };
 
       return items.map((item) => {
@@ -178,27 +192,48 @@ async function readDownloadTasks(
   });
 }
 
-export async function getDownloadStatus(
-  mode: QuarkDownloadStatusMode = "running",
-): Promise<QuarkDownloadStatus> {
-  log.debug(`getDownloadStatus: mode=${mode}`);
+export const getDownloadStatus = createAction(
+  "getDownloadStatus",
+  async (
+    mode: QuarkDownloadStatusMode = "running",
+  ): Promise<QuarkDownloadStatus> => {
+    log.debug(`getDownloadStatus: mode=${mode}`);
 
-  const homePage = getHomePage();
-  await homePage.bringToFront();
-  await homePage.waitForLoadState("domcontentloaded");
-  await openTransportCenter(homePage);
-  await openDownloadTasks(homePage);
+    const homePage = getHomePage();
+    await homePage.bringToFront();
+    await homePage.waitForLoadState("domcontentloaded");
+    await openTransportCenter(homePage);
+    await openDownloadTasks(homePage);
 
-  const normalizedMode = normalizeFileListText(mode) as QuarkDownloadStatusMode;
-  const states: QuarkDownloadTaskState[] = normalizedMode === "all"
-    ? ["running", "complete"]
-    : [normalizedMode === "complete" ? "complete" : "running"];
+    const normalizedMode = normalizeFileListText(
+      mode,
+    ) as QuarkDownloadStatusMode;
+    const states: QuarkDownloadTaskState[] = normalizedMode === "all"
+      ? ["running", "complete"]
+      : [normalizedMode === "complete" ? "complete" : "running"];
 
-  const tasks: QuarkDownloadTask[] = [];
-  for (const state of states) {
-    tasks.push(...await readDownloadTasks(homePage, state));
-  }
+    const tasks: QuarkDownloadTask[] = [];
+    for (const state of states) {
+      tasks.push(...await readDownloadTasks(homePage, state));
+    }
 
-  log.debug(`getDownloadStatus: ${tasks.length} tasks`);
-  return { tasks };
-}
+    log.debug(`getDownloadStatus: ${tasks.length} tasks`);
+    return { tasks };
+  },
+  {
+    description: "Get the status of download tasks",
+    mcp: {
+      name: "get_download_status",
+      input: z.object({
+        status: QuarkDownloadStatusModeSchema
+          .describe("Filter by task state (default: running)")
+          .optional(),
+      }),
+    },
+    cache: {
+      cache: downloadStatusCache,
+      key: (status?: QuarkDownloadStatusMode) => status ?? "running",
+      keyLabel: (key) => ` mode=${key}`,
+    },
+  },
+);

@@ -1,17 +1,29 @@
 import { log } from "../../libs/logger.ts";
+import { TtlCache } from "../cache.ts";
 import { getHomePage } from "../page-utils.ts";
+import { createAction } from "./create-action.ts";
 
-export async function getUserInfo() {
-  log.debug("getUserInfo: start");
+const userInfoCache = new TtlCache<"s", { capacity: string }>(30_000);
 
-  const homePage = getHomePage();
-  await homePage.bringToFront();
-  await homePage.waitForLoadState("domcontentloaded");
+export const getUserInfo = createAction(
+  "getUserInfo",
+  async () => {
+    log.debug("getUserInfo: start");
 
-  const capacityNumber = homePage.locator("div.capacity-number").first();
-  await capacityNumber.waitFor({ state: "visible", timeout: 10_000 });
+    const homePage = getHomePage();
+    await homePage.bringToFront();
+    await homePage.waitForLoadState("domcontentloaded");
 
-  const capacity = (await capacityNumber.textContent())?.trim() ?? "";
-  log.debug(`getUserInfo: capacity="${capacity}"`);
-  return { capacity };
-}
+    const capacityNumber = homePage.locator("div.capacity-number").first();
+    await capacityNumber.waitFor({ state: "visible", timeout: 10_000 });
+
+    const capacity = (await capacityNumber.textContent())?.trim() ?? "";
+    log.debug(`getUserInfo: capacity="${capacity}"`);
+    return { capacity };
+  },
+  {
+    description: "Get user information including storage capacity",
+    mcp: { name: "get_user_info" },
+    cache: { cache: userInfoCache, key: () => "s" },
+  },
+);

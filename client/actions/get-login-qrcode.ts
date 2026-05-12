@@ -7,6 +7,7 @@ import {
 import { findPageByUrl } from "../../libs/utils.ts";
 import { log } from "../../libs/logger.ts";
 import { getBrowserContext } from "../page-utils.ts";
+import { createAction } from "./create-action.ts";
 
 async function getMemberPage(
   context: BrowserContext,
@@ -67,26 +68,33 @@ async function screenshotQRCode(
   return await qrCode.screenshot({ type: "png" });
 }
 
-export async function getLoginQRCode() {
-  log.debug("getLoginQRCode: start");
+export const getLoginQRCode = createAction(
+  "getLoginQRCode",
+  async () => {
+    log.debug("getLoginQRCode: start");
 
-  const context = getBrowserContext();
-  const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
+    const context = getBrowserContext();
+    const homePage = findPageByUrl(context, QUARK_HOME_PAGE_URL);
 
-  if (!homePage) {
-    const loginPage = findPageByUrl(context, QUARK_LOGIN_PAGE_URL);
-    if (loginPage) {
-      log.debug("getLoginQRCode: using existing login page");
-      return await screenshotQRCode(loginPage, { refresh: true });
+    if (!homePage) {
+      const loginPage = findPageByUrl(context, QUARK_LOGIN_PAGE_URL);
+      if (loginPage) {
+        log.debug("getLoginQRCode: using existing login page");
+        return await screenshotQRCode(loginPage, { refresh: true });
+      }
+      throw new Error(
+        `Login QR code page not found: ${QUARK_HOME_PAGE_URL} or ${QUARK_LOGIN_PAGE_URL}`,
+      );
     }
-    throw new Error(
-      `Login QR code page not found: ${QUARK_HOME_PAGE_URL} or ${QUARK_LOGIN_PAGE_URL}`,
-    );
-  }
 
-  await homePage.bringToFront();
+    await homePage.bringToFront();
 
-  const { memberPage } = await getMemberPage(context, homePage);
-  log.debug("getLoginQRCode: capturing QR code");
-  return await screenshotQRCode(memberPage, { refresh: true });
-}
+    const { memberPage } = await getMemberPage(context, homePage);
+    log.debug("getLoginQRCode: capturing QR code");
+    return await screenshotQRCode(memberPage, { refresh: true });
+  },
+  {
+    description: "Get the Quark login QR code as a PNG image",
+    mcp: { name: "get_login_qrcode" },
+  },
+);

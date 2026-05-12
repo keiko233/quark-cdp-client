@@ -6,8 +6,11 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { SERVER_PORT } from "../libs/env.ts";
 import { log } from "../libs/logger.ts";
 import { router } from "./router.ts";
+import { setupMcpRoute } from "./mcp.ts";
 
 const app = new Hono();
+
+setupMcpRoute(app);
 
 const handler = new OpenAPIHandler(router, {
   plugins: [
@@ -47,4 +50,5 @@ export function startServer(): void {
   log.debug(`oRPC/Hono server listening on port ${SERVER_PORT}`);
   log.debug(`API docs: http://localhost:${SERVER_PORT}/`);
   log.debug(`OpenAPI spec: http://localhost:${SERVER_PORT}/spec.json`);
+  log.debug(`MCP endpoint: http://localhost:${SERVER_PORT}/mcp`);
 }
