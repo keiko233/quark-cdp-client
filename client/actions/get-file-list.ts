@@ -1,15 +1,20 @@
+/// <reference lib="dom" />
 import type { Page } from "playwright";
 import { z } from "zod";
 import type { QuarkFileList, QuarkFileListItem } from "../../libs/schemas.ts";
 import { log } from "../../libs/logger.ts";
 import { TtlCache } from "../cache.ts";
-import { getHomePage, getPageRoute, scrollAndCollect } from "../page-utils.ts";
+import {
+  getHomePage,
+  getPageRoute,
+  readNamesSnapshot,
+  scrollAndCollect,
+  scrollListToRow,
+} from "../page-utils.ts";
 import { createAction } from "./create-action.ts";
 
 export type { QuarkFileList, QuarkFileListItem };
 
-export const TABLE_ROOT_SELECTOR =
-  ".selecto-container.quark-cloud-drive-table-file";
 export const BREADCRUMB_SELECTOR = "#quark-cloud-drive-list-all-breadcrumb";
 export const TABLE_ROW_SELECTOR = "tbody.ant-table-tbody > tr";
 export const TABLE_SCROLL_SELECTOR = "div.ant-table-body";
@@ -112,92 +117,63 @@ export async function navigateToPath(
 }
 
 async function openPathSegment(homePage: Page, segment: string): Promise<void> {
-  const scrollContainer = getScrollContainer(homePage);
-  const MAX_RETRIES = 20;
-  const RETRY_DELAY_MS = 500;
-
-  await scrollContainer.evaluate((element) => {
-    element.scrollTop = 0;
+  const row = await scrollListToRow({
+    page: homePage,
+    scrollContainer: getScrollContainer(homePage),
+    rowSelector: TABLE_ROW_SELECTOR,
+    nameInRow: extractFileListRowName,
+    targetName: segment,
   });
-  await waitForFileListReady(homePage);
 
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    log.trace(`openPathSegment: opening "${segment}" attempt=${attempt}`);
+  // Bring the row into view and fire a synthetic dblclick on it. We
+  // dispatch the event directly rather than calling `row.dblclick()`
+  // because Playwright's dblclick hits the geometric centre of the
+  // element, which on a table row lands on the checkbox/select cell
+  // (toggling the row instead of opening it). A bubbled `dblclick`
+  // `MouseEvent` reaches the row's React handler directly.
+  await row.scrollIntoViewIfNeeded();
+  await row.evaluate((el) => {
+    const ctor = (el.ownerDocument.defaultView as unknown as {
+      MouseEvent: new (
+        type: string,
+        eventInitDict?: {
+          bubbles?: boolean;
+          cancelable?: boolean;
+          view?: unknown;
+        },
+      ) => Event;
+    }).MouseEvent;
+    el.dispatchEvent(
+      new ctor("dblclick", {
+        bubbles: true,
+        cancelable: true,
+        view: el.ownerDocument.defaultView,
+      }),
+    );
+  });
 
-    await scrollContainer.evaluate((element) => {
-      element.scrollTop = 0;
-    });
+  await homePage.locator(BREADCRUMB_SELECTOR)
+    .filter({ hasText: segment })
+    .first()
+    .waitFor({ state: "visible", timeout: 10_000 });
 
-    while (true) {
-      const visibleRowIndex = await findVisibleRowIndex(homePage, segment);
-      if (visibleRowIndex >= 0) {
-        await homePage.locator(TABLE_ROW_SELECTOR)
-          .nth(visibleRowIndex)
-          .evaluate((row) => {
-            const MouseEventCtor = (window as unknown as {
-              MouseEvent: new (
-                type: string,
-                eventInitDict?: {
-                  bubbles?: boolean;
-                  cancelable?: boolean;
-                  view?: unknown;
-                },
-              ) => Event;
-            }).MouseEvent;
-
-            row.dispatchEvent(
-              new MouseEventCtor("dblclick", {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-              }),
-            );
-          });
-
-        await homePage.locator(BREADCRUMB_SELECTOR).filter({ hasText: segment })
-          .first()
-          .waitFor({ state: "visible", timeout: 10_000 });
-
-        log.trace(`openPathSegment: opened "${segment}"`);
-        return;
-      }
-
-      const scrollState = await scrollContainer.evaluate((element) => {
-        const before = element.scrollTop;
-        element.scrollTop = Math.min(
-          element.scrollTop + element.clientHeight,
-          element.scrollHeight,
-        );
-        return { before, after: element.scrollTop };
-      });
-
-      if (scrollState.after === scrollState.before) break;
-
-      await homePage.waitForTimeout(150);
-    }
-
-    await homePage.waitForTimeout(RETRY_DELAY_MS);
-  }
-
-  throw new Error(`Path segment not found: ${segment}`);
+  log.trace(`openPathSegment: opened "${segment}"`);
 }
 
-export async function findVisibleRowIndex(
-  homePage: Page,
-  segment: string,
-): Promise<number> {
-  return await homePage.locator(TABLE_ROW_SELECTOR)
-    .evaluateAll((rows, targetName) =>
-      rows.findIndex((row) => {
-        const el = row.querySelector("td.td-file.file-name .filename-text");
-        if (!el) return false;
-        const cloned = el.cloneNode(true) as Element;
-        cloned.querySelectorAll(".all-file-list-mode-tips").forEach((tag) =>
-          tag.remove()
-        );
-        const name = (cloned.textContent ?? "").replace(/\s+/g, " ").trim();
-        return name === targetName;
-      }), segment);
+/**
+ * The single source of truth for "what is this file list row called?".
+ * Strips the `all-file-list-mode-tips` badge elements that Quark tacks
+ * onto certain rows (e.g. "NEW", "限时") so the display
+ * name we match against in the path is the bare filename.
+ */
+export function extractFileListRowName(row: Element): string {
+  const el = row.querySelector("td.td-file.file-name .filename-text");
+  if (!el) return "";
+  const cloned = el.cloneNode(true) as Element;
+  cloned.querySelectorAll(".all-file-list-mode-tips").forEach((tag) =>
+    tag.remove()
+  );
+  return (cloned.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
 export async function waitForFileListReady(homePage: Page): Promise<void> {
@@ -215,8 +191,13 @@ export async function waitForFileListReady(homePage: Page): Promise<void> {
     state: "visible",
     timeout: FILE_LIST_READY_TIMEOUT,
   });
-  await waitForNetworkSettled(homePage);
-  await waitForTableRowsStable(homePage);
+  await homePage.waitForLoadState("networkidle", { timeout: 3_000 })
+    .catch(() => undefined);
+  await readNamesSnapshot(
+    homePage,
+    TABLE_ROW_SELECTOR,
+    extractFileListRowName,
+  );
 
   log.trace("waitForFileListReady: ready");
 }
@@ -225,77 +206,31 @@ export function getScrollContainer(homePage: Page) {
   return homePage.locator(TABLE_SCROLL_SELECTOR).first();
 }
 
-async function waitForNetworkSettled(homePage: Page): Promise<void> {
-  await homePage.waitForLoadState("networkidle", { timeout: 3_000 })
-    .catch(() => undefined);
-}
-
-async function waitForTableRowsStable(homePage: Page): Promise<void> {
-  let previousSnapshot = "";
-  let stableRounds = 0;
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < FILE_LIST_READY_TIMEOUT) {
-    const snapshot = await homePage.locator(TABLE_ROW_SELECTOR).evaluateAll(
-      (rows) =>
-        rows
-          .map((row) => {
-            const el = row.querySelector(
-              "td.td-file.file-name .filename-text",
-            );
-            if (!el) return "";
-            const cloned = el.cloneNode(true) as Element;
-            cloned.querySelectorAll(".all-file-list-mode-tips").forEach((tag) =>
-              tag.remove()
-            );
-            return (cloned.textContent ?? "").replace(/\s+/g, " ").trim();
-          })
-          .filter(Boolean)
-          .join(" "),
-    );
-
-    if (snapshot === previousSnapshot) {
-      stableRounds++;
-      if (stableRounds >= 2) return;
-    } else {
-      stableRounds = 0;
-      previousSnapshot = snapshot;
-    }
-
-    await homePage.waitForTimeout(150);
-  }
-}
-
 async function readVisibleRows(homePage: Page): Promise<QuarkFileListItem[]> {
   return await homePage.locator(TABLE_ROW_SELECTOR)
-    .evaluateAll((rows) =>
-      rows.map((row) => {
-        const getCellText = (selector: string): string => {
+    .evaluateAll(
+      (rows, fnSrc) => {
+        // eslint-disable-next-line no-new-func
+        const extractName = new Function("el", `return (${fnSrc})(el);`) as
+          (el: Element) => string;
+        const getCellText = (row: Element, selector: string): string => {
           const cell = row.querySelector(selector);
           return (cell?.textContent ?? "").replace(/\s+/g, " ").trim();
         };
-
-        const getFilenameText = (): string => {
-          const el = row.querySelector(
-            "td.ant-table-cell.td-file.file-name .filename-text",
-          );
-          if (!el) return "";
-          const cloned = el.cloneNode(true) as Element;
-          cloned.querySelectorAll(".all-file-list-mode-tips").forEach((tag) =>
-            tag.remove()
-          );
-          return (cloned.textContent ?? "").replace(/\s+/g, " ").trim();
-        };
-
-        return {
-          name: getFilenameText(),
-          size: getCellText("td.ant-table-cell.td-file.td-file-size"),
+        return rows.map((row) => ({
+          name: extractName(row),
+          size: getCellText(row, "td.ant-table-cell.td-file.td-file-size"),
           type: getCellText(
+            row,
             "td.ant-table-cell.td-file:not(.file-name):not(.td-file-size):not(.td-file-time)",
           ),
-          updatedAt: getCellText("td.ant-table-cell.td-file.td-file-time"),
-        };
-      }).filter((item) => item.name.length > 0)
+          updatedAt: getCellText(
+            row,
+            "td.ant-table-cell.td-file.td-file-time",
+          ),
+        })).filter((item) => item.name.length > 0);
+      },
+      extractFileListRowName.toString(),
     );
 }
 

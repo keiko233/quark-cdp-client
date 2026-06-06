@@ -133,96 +133,8 @@ export const QuarkDownloadFileResultSchema = z.object({
   ),
 });
 
-// ─── Our async task queue (wraps any submit* call) ───────────────────────────
-
-export const QuarkTaskStatusSchema = z.enum([
-  "pending",
-  "running",
-  "completed",
-  "failed",
-  "cancelled",
-]).describe(
-  "Lifecycle of a task in OUR queue (not Quark's transport center). " +
-    "`pending` → `running` → terminal (`completed` | `failed` | `cancelled`). " +
-    "Terminal states are sticky; poll get-task until you see one.",
-);
-
-export const QuarkTaskRecordSchema = z.object({
-  id: z.string().describe("Task id (UUID v4) returned by submit*."),
-  label: z.string().describe(
-    "Short human label naming the kind of work (e.g. `downloadFile`). " +
-      "Use this with list-tasks `label` filter to scope queries.",
-  ),
-  args: z.unknown().describe(
-    "Original positional arguments passed to the underlying action, " +
-      "preserved as JSON for debugging.",
-  ),
-  status: QuarkTaskStatusSchema,
-  createdAt: z.number().int().nonnegative().describe(
-    "Unix milliseconds when the task was submitted.",
-  ),
-  startedAt: z.number().int().nonnegative().optional().describe(
-    "Unix milliseconds when the task entered `running` (when it acquired " +
-      "the browser queue). Absent for tasks still `pending`.",
-  ),
-  completedAt: z.number().int().nonnegative().optional().describe(
-    "Unix milliseconds when the task reached a terminal status. Absent " +
-      "while still pending/running.",
-  ),
-  result: z.unknown().optional().describe(
-    "Action return value on success. Shape depends on the underlying " +
-      "action — e.g. `{name, alreadyQueued?}` for downloadFile.",
-  ),
-  error: z.object({
-    name: z.string(),
-    message: z.string(),
-    stack: z.string().optional(),
-  }).optional().describe(
-    "Serialised error on failure. The browser-disconnect path produces a " +
-      "stub error with `message: \"browser disconnected\"`.",
-  ),
-});
-
-export const QuarkSubmitResultSchema = z.object({
-  taskId: z.string().uuid().describe(
-    "UUID v4 of the freshly-created task. Poll get-task(id) until status " +
-      "reaches a terminal state.",
-  ),
-});
-
-export const QuarkDownloadFilesRequestSchema = z.object({
-  paths: z.array(z.string().min(1)).min(1).max(100).describe(
-    "Up to 100 file paths to download in one batch. ALL paths MUST share " +
-      "the same parent directory; mixed-parent requests are rejected " +
-      "synchronously. Each file gets its own taskId so progress is " +
-      "independent.",
-  ),
-});
-
-export const QuarkDownloadFilesResultSchema = z.object({
-  taskIds: z.array(z.string().uuid()).describe(
-    "One task id per submitted path, in the same order as the request. " +
-      "Poll get-task for each, or list-tasks with `label: \"downloadFile\"` " +
-      "to see them in aggregate.",
-  ),
-});
-
-export const QuarkListTasksFilterSchema = z.object({
-  status: QuarkTaskStatusSchema.optional().describe(
-    "Keep only tasks in this status. Omit for all statuses.",
-  ),
-  label: z.string().optional().describe(
-    "Keep only tasks whose label exactly matches (e.g. `downloadFile`).",
-  ),
-});
-
-export const QuarkListTasksResultSchema = z.object({
-  tasks: z.array(QuarkTaskRecordSchema).describe(
-    "Matching tasks, newest-first (`createdAt` descending).",
-  ),
-});
-
-export const QuarkGetTaskResultSchema = QuarkTaskRecordSchema;
+// (No async task-queue schemas — `download_file` is the single
+// download entry point and is fully synchronous from the caller's POV.)
 
 export type QuarkFileListItem = z.infer<typeof QuarkFileListItemSchema>;
 export type QuarkFileList = z.infer<typeof QuarkFileListSchema>;
@@ -233,18 +145,3 @@ export type QuarkDownloadStatusMode = z.infer<typeof QuarkDownloadStatusModeSche
 export type QuarkDownloadTaskOperation = z.infer<typeof QuarkDownloadTaskOperationSchema>;
 export type BrowserQueueStatus = z.infer<typeof BrowserQueueStatusSchema>;
 export type QuarkDownloadFileResult = z.infer<typeof QuarkDownloadFileResultSchema>;
-export type QuarkTaskStatus = z.infer<typeof QuarkTaskStatusSchema>;
-export type QuarkTaskRecord<TArgs = unknown, TValue = unknown> = Omit<
-  z.infer<typeof QuarkTaskRecordSchema>,
-  "args" | "result"
-> & { args: TArgs; result?: TValue };
-export type QuarkSubmitResult = z.infer<typeof QuarkSubmitResultSchema>;
-export type QuarkDownloadFilesRequest = z.infer<
-  typeof QuarkDownloadFilesRequestSchema
->;
-export type QuarkDownloadFilesResult = z.infer<
-  typeof QuarkDownloadFilesResultSchema
->;
-export type QuarkListTasksFilter = z.infer<typeof QuarkListTasksFilterSchema>;
-export type QuarkListTasksResult = z.infer<typeof QuarkListTasksResultSchema>;
-export type QuarkGetTaskResult = z.infer<typeof QuarkGetTaskResultSchema>;

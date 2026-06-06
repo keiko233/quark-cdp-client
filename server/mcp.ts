@@ -17,14 +17,10 @@ import {
   getFileList,
   getLoginQRCode,
   getLoginStatus,
-  getTaskAction,
   getUserInfo,
   importShareLink,
-  listTasksAction,
   quarkActions,
   setDownloadStatus,
-  submitDownloadFile,
-  submitDownloadFiles,
 } from "../client/actions/index.ts";
 import type {
   QuarkDownloadStatusMode,
@@ -159,35 +155,6 @@ const MCP_TOOL_HANDLERS: Record<string, ToolHandler> = {
   download_file: async (args) =>
     text(unwrap(await downloadFile(args.path as string))),
 
-  submit_download_file: async (args) =>
-    text(unwrap(await submitDownloadFile(args.path as string))),
-
-  submit_download_files: async (args) =>
-    text(
-      unwrap(
-        await submitDownloadFiles(
-          args as unknown as {
-            paths: string[];
-          },
-        ),
-      ),
-    ),
-
-  get_task: async (args) =>
-    text(unwrap(await getTaskAction(args.id as string))),
-
-  list_tasks: async (args) =>
-    text(
-      unwrap(
-        await listTasksAction(
-          args as unknown as {
-            status?: import("../libs/schemas.ts").QuarkTaskStatus;
-            label?: string;
-          } | undefined,
-        ),
-      ),
-    ),
-
   get_download_status: async (args) =>
     text(
       unwrap(
@@ -284,21 +251,14 @@ const SERVER_INSTRUCTIONS = [
   "  `{path: string[], items: [{name, size, type, updatedAt}]}` with the",
   "  breadcrumb as `path` (root → []) and items in display order.",
   "",
-  "### Downloads — two flavours",
-  "Use the **sync** form for quick one-offs; use the **async** form for",
-  "batches or anything you'd rather not block on:",
-  "",
-  "- **sync**  `download_file {path}` — blocks until the click happens",
-  "  (≤60 s). Returns `{name, alreadyQueued?}`.",
-  "- **async** `submit_download_file {path}` — returns `{taskId}`",
-  "  immediately. Poll `get_task {id}` until `status` is",
-  "  `completed` | `failed` | `cancelled`.",
-  "- **async** `submit_download_files {paths[]}` — batch up to 100 paths",
-  "  that share the same parent directory. Returns `{taskIds[]}` in the",
-  "  same order as the request. Mixed-parent batches are rejected.",
-  "",
-  "BOTH forms accept **files OR folders** as `path` — Quark packages folder",
-  "downloads into a single transport-center task on its end.",
+  "### Downloads",
+  "- `download_file {path}` — navigate to the parent folder, scroll the",
+  "  target row into view, hover, and click the row's first hover-oper",
+  "  item (the download button). Blocks until the click has been issued",
+  "  (≤60 s). Returns `{name, alreadyQueued?}` — `alreadyQueued: true`",
+  "  means the item was already in Quark's transport center and we",
+  "  skipped the click. Accepts files OR folders; Quark packages folder",
+  "  downloads into a single transport-center task on its end.",
   "",
   "### Download queue inspection",
   "- `get_download_status {status?}` — read Quark's transport center",
@@ -308,20 +268,6 @@ const SERVER_INSTRUCTIONS = [
   "- `set_download_status {taskName, operation}` — `resume` | `pause` |",
   "  `delete` a row. `delete` removes the entry from the UI but does NOT",
   "  delete the file from disk.",
-  "",
-  "### Task lifecycle (our async queue)",
-  "Every `submit_*` call creates a record in an in-process queue that's",
-  "SEPARATE from Quark's transport center. The status machine is:",
-  "",
-  "    pending → running → completed | failed | cancelled",
-  "",
-  "Terminal states are sticky. Records live in memory only — restarting",
-  "the client loses them.",
-  "",
-  "- `get_task {id}` — fetch one record by UUID.",
-  "- `list_tasks {status?, label?}` — list newest-first; filter by status",
-  "  (`pending`/`running`/`completed`/`failed`/`cancelled`) and/or label",
-  "  (e.g. `\"downloadFile\"`).",
   "",
   "### Sharing",
   "- `import_share_link {url}` — paste a `https://pan.quark.cn/s/...`",
@@ -342,12 +288,7 @@ const SERVER_INSTRUCTIONS = [
   "  requests are instant.",
   "- **Concurrency is 1.** Every Quark-touching tool serialises behind",
   "  the same browser queue. Submitting 10 downloads in parallel doesn't",
-  "  parallelise the clicks — use `submit_download_files` if they share a",
-  "  parent, or just accept the serial behaviour.",
-  "- **Two different \"task\" concepts.** `get_task` / `list_tasks` are",
-  "  OUR submission lifecycle. `get_download_status` /",
-  "  `set_download_status` are Quark's own download queue. They don't",
-  "  share ids — match by `name` if you need to cross-reference.",
+  "  parallelise the clicks — just accept the serial behaviour.",
   "- **No login required for most reads from the home page**, but writes",
   "  (downloads, share imports, capacity reads) do require it. Guard with",
   "  `get_login_status` if you're unsure.",

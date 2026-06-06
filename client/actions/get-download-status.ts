@@ -130,7 +130,7 @@ async function readCurrentTabTasks(
 ): Promise<QuarkDownloadTask[]> {
   return await homePage.locator(`${TASK_LIST_SELECTOR} ${TASK_ITEM_SELECTOR}`)
     .evaluateAll((items, taskState) => {
-      const normalize = (value: string | null): string =>
+      const normalize = (value: string | null | undefined): string =>
         (value ?? "").replace(/\s+/g, " ").trim();
       const parseSize = (value: string): { size: string; progress: string } => {
         const match = value.match(/^(.*?)\s*\((.*?)\)$/);
