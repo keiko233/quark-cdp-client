@@ -188,6 +188,8 @@ async function readDownloadTasks(
   });
 }
 
+export { readDownloadTasks };
+
 export const getDownloadStatus = createAction(
   "getDownloadStatus",
   async (

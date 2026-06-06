@@ -314,6 +314,29 @@ async function readBreadcrumbPath(homePage: Page): Promise<string[]> {
   }, ROOT_PATH_TEXT);
 }
 
+export { readBreadcrumbPath };
+
+/**
+ * Returns true if the current breadcrumb path is a prefix of the target path
+ * (or matches it exactly). Used by downloadFileImpl to skip navigation work
+ * when the user is already on the right folder.
+ */
+export async function isAtPath(
+  homePage: Page,
+  targetSegments: string[],
+): Promise<boolean> {
+  if (!getPageRoute(homePage).startsWith(FILE_LIST_ROUTE)) return false;
+  let current: string[] | null = null;
+  try {
+    current = await readBreadcrumbPath(homePage);
+  } catch {
+    return false;
+  }
+  if (current === null) return false;
+  if (current.length > targetSegments.length) return false;
+  return current.every((seg, i) => seg === targetSegments[i]);
+}
+
 export function normalizeFileListText(value: string | null): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }

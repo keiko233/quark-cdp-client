@@ -18,6 +18,10 @@ export const baseProcedure = os
       status: 500,
       message: "Internal Server Error",
     },
+    NOT_FOUND: {
+      status: 404,
+      message: "Not Found",
+    },
   })
   .use(async ({ next, errors }) => {
     try {

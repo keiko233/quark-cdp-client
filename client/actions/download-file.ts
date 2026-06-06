@@ -1,12 +1,14 @@
 import type { Page } from "playwright";
 import { z } from "zod";
-import type { QuarkFileList, QuarkFileListItem } from "../../libs/schemas.ts";
+import type { QuarkDownloadFileResult } from "../../libs/schemas.ts";
 import { log } from "../../libs/logger.ts";
 import { getHomePage } from "../page-utils.ts";
-import { createAction } from "./create-action.ts";
+import { TtlCache } from "../cache.ts";
+import { createAction, unwrapResult } from "./create-action.ts";
 import {
   findVisibleRowIndex,
   getScrollContainer,
+  isAtPath,
   navigateToPath,
   normalizeFileListText,
   parsePathSegments,
@@ -14,14 +16,27 @@ import {
   TABLE_ROW_SELECTOR,
   waitForFileListReady,
 } from "./get-file-list.ts";
+import { getDownloadStatus } from "./get-download-status.ts";
+import { submitDownloadFile } from "./submit-download-file.ts";
+import { getTask } from "../task-queue.ts";
 
-export type { QuarkFileList, QuarkFileListItem };
-
-export interface QuarkDownloadFileResult {
-  name: string;
-}
+export type { QuarkDownloadFileResult };
 
 const DOWNLOAD_BUTTON_INDEX = 0;
+
+/**
+ * Short TTL on the sync `downloadFile` wrapper. Optimisation D — prevents
+ * near-simultaneous triggers of the same path from kicking off redundant
+ * work. The cache is set on success only (via `createAction`'s cache write),
+ * so a failed click can be retried immediately.
+ */
+const downloadFileCache = new TtlCache<string, QuarkDownloadFileResult>(5_000);
+
+/**
+ * Polling parameters for the sync wrapper.
+ */
+const DOWNLOAD_POLL_INTERVAL_MS = 250;
+const DOWNLOAD_POLL_TIMEOUT_MS = 60_000;
 
 function getTargetFromPath(
   path: string,
@@ -94,42 +109,101 @@ async function clickDownloadButton(
   });
 }
 
-export const downloadFile = createAction(
-  "downloadFile",
-  async (
-    path: string,
-  ): Promise<QuarkDownloadFileResult> => {
-    log.debug(`downloadFile: path="${path}"`);
+/**
+ * The actual download work. Used by both the sync `downloadFile` wrapper and
+ * the async `submitDownloadFile` action. Implements:
+ *   B — skip `resetToHome` / `navigateToPath` when already at the target path
+ *   C — dedup against the live download task list (`getDownloadStatus`) and
+ *       return `{ name, alreadyQueued: true }` if the file is already in
+ *       `running` or `complete`
+ */
+export async function downloadFileImpl(
+  path: string,
+): Promise<QuarkDownloadFileResult> {
+  log.debug(`downloadFile: path="${path}"`);
 
-    const target = getTargetFromPath(path);
-    const homePage = getHomePage();
-    await homePage.bringToFront();
-    await homePage.waitForLoadState("domcontentloaded");
+  const target = getTargetFromPath(path);
+  const targetSegments = parsePathSegments(target.parentPath);
+  const homePage = getHomePage();
+  await homePage.bringToFront();
+  await homePage.waitForLoadState("domcontentloaded");
 
-    await resetToHome(homePage);
-    if (target.parentPath) {
+  // Optimisation B — skip navigation when already at the target path.
+  if (target.parentPath) {
+    const alreadyAt = await isAtPath(homePage, targetSegments);
+    if (alreadyAt) {
+      log.trace("downloadFile: already at target path, skipping navigation");
+    } else {
+      await resetToHome(homePage);
       await navigateToPath(homePage, target.parentPath);
     }
-    await waitForFileListReady(homePage);
+  } else {
+    await resetToHome(homePage);
+  }
+  await waitForFileListReady(homePage);
 
-    const visibleRowIndex = await scrollFileIntoView(
-      homePage,
-      normalizeFileListText(target.fileName),
+  // Optimisation C — dedup against the live download task list. If the file
+  // is already in the transport panel (running or complete), skip the click.
+  const normalizedName = normalizeFileListText(target.fileName);
+  const statusResult = await getDownloadStatus("all");
+  const status = unwrapResult<{ tasks: { name: string }[] }>(statusResult);
+  const existing = status.tasks.find((t) => t.name === normalizedName);
+  if (existing) {
+    log.debug(
+      `downloadFile: "${target.fileName}" already in transport list, skipping click`,
     );
+    return { name: target.fileName, alreadyQueued: true };
+  }
 
-    await clickDownloadButton(homePage, visibleRowIndex);
+  const visibleRowIndex = await scrollFileIntoView(homePage, normalizedName);
 
-    log.debug(`downloadFile: queued "${target.fileName}"`);
-    return { name: target.fileName };
+  await clickDownloadButton(homePage, visibleRowIndex);
+
+  log.debug(`downloadFile: queued "${target.fileName}"`);
+  return { name: target.fileName };
+}
+
+/**
+ * Sync wrapper that delegates to `submitDownloadFile` (async) and polls the
+ * task queue until the click is issued. Wire-compatible with the original
+ * `GET /download-file` callers; the 5s `downloadFileCache` (optimisation D)
+ * dedupes near-simultaneous triggers of the same path.
+ */
+export const downloadFile = createAction(
+  "downloadFile",
+  async (path: string): Promise<QuarkDownloadFileResult> => {
+    const { taskId } = await submitDownloadFile(path);
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < DOWNLOAD_POLL_TIMEOUT_MS) {
+      const record = getTask(taskId);
+      if (!record) throw new Error(`downloadFile: task ${taskId} vanished`);
+      if (record.status === "completed") {
+        return record.result as QuarkDownloadFileResult;
+      }
+      if (record.status === "failed") {
+        const message = record.error?.message ?? "unknown error";
+        throw new Error(`downloadFile: task failed: ${message}`);
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, DOWNLOAD_POLL_INTERVAL_MS)
+      );
+    }
+
+    throw new Error("downloadFile: task polling timeout");
   },
   {
-    description:
-      "Trigger download of a file from Quark cloud drive by its path",
+    description: "Trigger download of a file from Quark cloud drive by its path",
     mcp: {
       name: "download_file",
       input: z.object({
         path: z.string().describe("File path in Quark drive"),
       }),
+    },
+    cache: {
+      cache: downloadFileCache,
+      key: (path: string) => path,
+      keyLabel: (key) => ` path="${key}"`,
     },
   },
 );

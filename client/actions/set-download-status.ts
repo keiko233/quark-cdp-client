@@ -1,5 +1,9 @@
 import type { Page } from "playwright";
-import type { QuarkDownloadTaskOperation } from "../../libs/schemas.ts";
+import type {
+  QuarkDownloadTask,
+  QuarkDownloadTaskOperation,
+  QuarkDownloadTaskState,
+} from "../../libs/schemas.ts";
 import { QuarkDownloadTaskOperationSchema } from "../../libs/schemas.ts";
 import { z } from "zod";
 import { log } from "../../libs/logger.ts";
@@ -8,6 +12,7 @@ import { createAction } from "./create-action.ts";
 import {
   openDownloadTasks,
   openTransportCenter,
+  readDownloadTasks,
   selectDownloadTaskTab,
   TASK_ITEM_SELECTOR,
   TASK_LIST_SELECTOR,
@@ -92,6 +97,31 @@ async function findAndOperateTask(
   return false;
 }
 
+/**
+ * Search both transport tabs in parallel for a task with the given name.
+ * Returns the tab the task lives on, or `null` if it isn't found.
+ *
+ * Optimisation E — the previous implementation always selected the
+ * `running` tab, which made it impossible to delete a completed task.
+ * Now we discover the task first and only switch tabs when necessary.
+ */
+async function findTaskTab(
+  homePage: Page,
+  taskName: string,
+): Promise<QuarkDownloadTaskState | null> {
+  const states: QuarkDownloadTaskState[] = ["running", "complete"];
+  const results = await Promise.all(
+    states.map((state) => readDownloadTasks(homePage, state)),
+  );
+  for (let i = 0; i < states.length; i++) {
+    const found = (results[i] as QuarkDownloadTask[]).find(
+      (t) => t.name === taskName,
+    );
+    if (found) return states[i];
+  }
+  return null;
+}
+
 export const setDownloadStatus = createAction(
   "setDownloadStatus",
   async (
@@ -105,12 +135,26 @@ export const setDownloadStatus = createAction(
     await homePage.waitForLoadState("domcontentloaded");
     await openTransportCenter(homePage);
     await openDownloadTasks(homePage);
-    await selectDownloadTaskTab(homePage, "running");
+
+    // Optimisation E — locate the task on either tab instead of always
+    // switching to `running`. This makes `delete` on completed tasks work.
+    const foundOn = await findTaskTab(homePage, taskName);
+    if (foundOn === null) {
+      log.warn(`setDownloadStatus: task not found "${taskName}"`);
+      return { success: false };
+    }
+
+    log.debug(
+      `setDownloadStatus: task "${taskName}" found on tab "${foundOn}"`,
+    );
+    await selectDownloadTaskTab(homePage, foundOn);
 
     const success = await findAndOperateTask(homePage, taskName, operation);
 
     if (!success) {
-      log.warn(`setDownloadStatus: task not found "${taskName}"`);
+      log.warn(
+        `setDownloadStatus: task "${taskName}" disappeared from "${foundOn}" tab after discovery`,
+      );
     }
 
     return { success };

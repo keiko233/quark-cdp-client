@@ -17,10 +17,14 @@ import {
   getFileList,
   getLoginQRCode,
   getLoginStatus,
+  getTaskAction,
   getUserInfo,
   importShareLink,
+  listTasksAction,
   quarkActions,
   setDownloadStatus,
+  submitDownloadFile,
+  submitDownloadFiles,
 } from "../client/actions/index.ts";
 import type {
   QuarkDownloadStatusMode,
@@ -138,6 +142,35 @@ const MCP_TOOL_HANDLERS: Record<string, ToolHandler> = {
 
   download_file: async (args) =>
     text(unwrap(await downloadFile(args.path as string))),
+
+  submit_download_file: async (args) =>
+    text(unwrap(await submitDownloadFile(args.path as string))),
+
+  submit_download_files: async (args) =>
+    text(
+      unwrap(
+        await submitDownloadFiles(
+          args as unknown as {
+            paths: string[];
+          },
+        ),
+      ),
+    ),
+
+  get_task: async (args) =>
+    text(unwrap(await getTaskAction(args.id as string))),
+
+  list_tasks: async (args) =>
+    text(
+      unwrap(
+        await listTasksAction(
+          args as unknown as {
+            status?: import("../libs/schemas.ts").QuarkTaskStatus;
+            label?: string;
+          } | undefined,
+        ),
+      ),
+    ),
 
   get_download_status: async (args) =>
     text(

@@ -12,23 +12,36 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { getBrowser, getBrowserQueueStatus } from "../client/browser.ts";
+import { getTask, listTasks } from "../client/task-queue.ts";
 import {
   downloadFile,
   getDownloadStatus,
   getFileList,
   getLoginQRCode,
   getLoginStatus,
+  getTaskAction,
   getUserInfo,
   importShareLink,
+  listTasksAction,
   setDownloadStatus,
+  submitDownloadFile,
+  submitDownloadFiles,
 } from "../client/actions/index.ts";
 import {
   BrowserQueueStatusSchema,
+  QuarkDownloadFileResultSchema,
+  QuarkDownloadFilesRequestSchema,
+  QuarkDownloadFilesResultSchema,
   QuarkDownloadStatusModeSchema,
   QuarkDownloadStatusSchema,
   QuarkDownloadTaskOperationSchema,
   QuarkFileListSchema,
+  QuarkGetTaskResultSchema,
+  QuarkListTasksFilterSchema,
+  QuarkListTasksResultSchema,
+  QuarkSubmitResultSchema,
 } from "../libs/schemas.ts";
+import { ORPCError } from "@orpc/server";
 import z from "zod";
 import { baseProcedure } from "./errors.ts";
 
@@ -128,9 +141,68 @@ export const router = {
       description: downloadFile.metadata.description,
     })
     .input(z.object({ query: z.object({ path: z.string() }) }))
-    .output(z.object({ name: z.string() }))
+    .output(QuarkDownloadFileResultSchema)
     .handler(async ({ input }) => {
       return unwrap(await downloadFile(input.query.path));
+    }),
+
+  submitDownloadFile: baseProcedure
+    .route({
+      method: "POST",
+      path: "/submit-download-file",
+      inputStructure: "detailed",
+      description: submitDownloadFile.metadata.description,
+    })
+    .input(z.object({ body: z.object({ path: z.string() }) }))
+    .output(QuarkSubmitResultSchema)
+    .handler(async ({ input }) => {
+      return unwrap(await submitDownloadFile(input.body.path));
+    }),
+
+  submitDownloadFiles: baseProcedure
+    .route({
+      method: "POST",
+      path: "/submit-download-files",
+      inputStructure: "detailed",
+      description: submitDownloadFiles.metadata.description,
+    })
+    .input(z.object({ body: QuarkDownloadFilesRequestSchema }))
+    .output(QuarkDownloadFilesResultSchema)
+    .handler(async ({ input }) => {
+      return unwrap(await submitDownloadFiles(input.body));
+    }),
+
+  getTask: baseProcedure
+    .route({
+      method: "GET",
+      path: "/get-task",
+      inputStructure: "detailed",
+      description: getTaskAction.metadata.description,
+    })
+    .input(z.object({ query: z.object({ id: z.string().uuid() }) }))
+    .output(QuarkGetTaskResultSchema)
+    .handler(async ({ input }) => {
+      // Read directly from the in-memory task store. The `getTaskAction` MCP
+      // tool still wraps the same call for parity, but the HTTP route skips
+      // the `Result`/unwrap indirection so the types line up cleanly.
+      const record = getTask(input.query.id);
+      if (!record) {
+        throw new ORPCError("NOT_FOUND", { message: "task not found" });
+      }
+      return record;
+    }),
+
+  listTasks: baseProcedure
+    .route({
+      method: "GET",
+      path: "/list-tasks",
+      inputStructure: "detailed",
+      description: listTasksAction.metadata.description,
+    })
+    .input(z.object({ query: QuarkListTasksFilterSchema.optional() }).optional())
+    .output(QuarkListTasksResultSchema)
+    .handler(async ({ input }) => {
+      return unwrap(await listTasksAction(input?.query));
     }),
 
   getDownloadStatus: baseProcedure

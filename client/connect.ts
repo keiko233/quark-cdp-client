@@ -2,6 +2,9 @@ import { chromium } from "npm:playwright";
 import { log } from "../libs/logger.ts";
 import { CDP_URL } from "../libs/env.ts";
 import { setBrowser } from "./browser.ts";
+import { markAllRunningAsFailed } from "./task-queue.ts";
+
+const BROWSER_DISCONNECT_REASON = "browser disconnected";
 
 export async function connect(): Promise<void> {
   log.debug(`connecting to CDP at ${CDP_URL}...`);
@@ -11,6 +14,11 @@ export async function connect(): Promise<void> {
   setBrowser(browser);
 
   browser.on("disconnected", () => {
+    // Flip any in-flight background tasks to `failed` so polling callers
+    // learn about the drop instead of waiting forever for results that will
+    // never arrive. Do this BEFORE clearing the browser reference so the
+    // task-queue module still has a coherent view of the world.
+    markAllRunningAsFailed(BROWSER_DISCONNECT_REASON);
     setBrowser(null);
     log.debug("CDP connection disconnected, will reconnect...");
   });

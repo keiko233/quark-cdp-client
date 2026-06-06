@@ -77,3 +77,21 @@ export function createAction<Args extends unknown[], Value, Key = never>(
 
   return action;
 }
+
+/**
+ * Unwraps a `Result<T, E>` to either its value or throws the contained error.
+ * Mirrors the `unwrap` helper used on the server side (`server/router.ts:36`).
+ * Intended for *internal* use from one action that needs to call another
+ * action's underlying value without leaking the `Result` envelope to its own
+ * caller.
+ */
+// deno-lint-ignore no-explicit-any
+export function unwrapResult<T>(result: any): T {
+  // deno-lint-ignore no-explicit-any
+  return (result as { match: (...args: any[]) => any }).match({
+    ok: (v: T) => v,
+    err: (e: Error): never => {
+      throw e;
+    },
+  }) as T;
+}
