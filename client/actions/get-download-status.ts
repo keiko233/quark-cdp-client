@@ -219,12 +219,33 @@ export const getDownloadStatus = createAction(
     return { tasks };
   },
   {
-    description: "Get the status of download tasks",
+    description: [
+      "Read the rows in Quark's transport center (the download queue inside",
+      "the Quark UI). Returns `{tasks: QuarkDownloadTask[]}` with one entry",
+      "per row.",
+      "",
+      "Filter `status`:",
+      "  - `running` (default): items still downloading/queued — single tab",
+      "    read, cheapest",
+      "  - `complete`: finished items only",
+      "  - `all`: both tabs concatenated (running first, then complete)",
+      "",
+      "Fields are surfaced verbatim from the UI (size/progress/speed/",
+      "remaining are display strings, not parsed numbers). Use `name` as",
+      "the `taskName` argument for `set_download_status` when you want to",
+      "pause / resume / delete a row.",
+      "",
+      "Cached for 5 s per `status` mode. Note: \"download task\" here is",
+      "Quark's own queue, NOT our outer task queue (`list_tasks`).",
+    ].join("\n"),
     mcp: {
       name: "get_download_status",
       input: z.object({
         status: QuarkDownloadStatusModeSchema
-          .describe("Filter by task state (default: running)")
+          .describe(
+            "Which transport-center tab(s) to read. `running` (default) is " +
+              "cheapest; `all` reads both tabs.",
+          )
           .optional(),
       }),
     },

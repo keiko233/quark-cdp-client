@@ -65,14 +65,34 @@ export const submitDownloadFiles = createAsyncAction<
     return { taskIds };
   },
   {
-    description:
-      "Submit a batch of same-parent file downloads. Each file gets its own taskId; subsequent calls hit the same browser page and skip navigation.",
+    description: [
+      "Submit a BATCH of downloads (files and/or folders) sharing the same",
+      "parent directory. Async — returns `{taskIds: string[]}` immediately,",
+      "one id per path in the same order as the request.",
+      "",
+      "Same-parent constraint: every path's directory must match. Mixed-",
+      "parent batches are REJECTED synchronously (the call itself throws)",
+      "rather than partially submitting — easier to handle as the caller.",
+      "Max 100 paths per batch. Folders are accepted alongside files.",
+      "",
+      "Why batch: each download requires navigating to the item's folder.",
+      "The first task in the batch does the nav; subsequent tasks land on",
+      "the same folder and skip the nav step (see `isAtPath` short-circuit",
+      "in download-file.ts). For 10 same-folder items this is roughly the",
+      "difference between 10 navigations and 1.",
+      "",
+      "Track results with `get_task(id)` per id, or `list_tasks {label:",
+      "\"downloadFile\"}` for the whole fleet.",
+    ].join("\n"),
     mcp: {
       name: "submit_download_files",
       input: z.object({
         paths: z.array(z.string().min(1)).min(1).max(100)
           .describe(
-            "File paths to download. All must share the same parent directory.",
+            "1–100 file or folder paths to download. All MUST share the " +
+              "same parent directory (e.g. `Movies/2024/a.mp4` and " +
+              "`Movies/2024/2025-set` are fine; `Movies/2024/a.mp4` and " +
+              "`Docs/b.pdf` are not).",
           ),
       }),
     },

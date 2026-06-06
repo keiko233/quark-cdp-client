@@ -94,7 +94,20 @@ export const getLoginQRCode = createAction(
     return await screenshotQRCode(memberPage, { refresh: true });
   },
   {
-    description: "Get the Quark login QR code as a PNG image",
+    description: [
+      "Capture the Quark login QR code as a PNG image.",
+      "",
+      "Use this to log a fresh account in: render the PNG, have the user scan",
+      "it with the Quark mobile app, then poll `get_login_status` until it",
+      "returns `{loggedIn: true}`. Each call re-opens or refreshes the login",
+      "page so the QR is current (Quark rotates QRs every ~minute).",
+      "",
+      "Returns the raw PNG bytes — over HTTP as `image/png`, over MCP as a",
+      "base64-encoded image content block. No input.",
+      "",
+      "Side effects: brings the Quark window forward, may open the membership",
+      "/ login page tab if it isn't already open, reloads it to refresh the QR.",
+    ].join("\n"),
     mcp: { name: "get_login_qrcode" },
   },
 );

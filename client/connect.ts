@@ -1,12 +1,20 @@
 import { chromium } from "npm:playwright";
 import { log } from "../libs/logger.ts";
 import { CDP_URL } from "../libs/env.ts";
+import { ensureQuarkAwake } from "../libs/manager.ts";
 import { setBrowser } from "./browser.ts";
 import { markAllRunningAsFailed } from "./task-queue.ts";
 
 const BROWSER_DISCONNECT_REASON = "browser disconnected";
 
 export async function connect(): Promise<void> {
+  // Always wake before connecting: if the manager idle-stopped Quark while we
+  // were disconnected, /start brings it back up and we wait for the CDP port
+  // to come online before Playwright tries the handshake. Idempotent if Quark
+  // is already running.
+  log.debug("ensuring Quark is awake before connect");
+  await ensureQuarkAwake();
+
   log.debug(`connecting to CDP at ${CDP_URL}...`);
 
   const browser = await chromium.connectOverCDP(CDP_URL);
@@ -25,19 +33,26 @@ export async function connect(): Promise<void> {
 
   const context = browser.contexts()[0];
   if (!context) {
-    log.warn("No BrowserContext found, make sure QuarkCloudDrive is running");
-    await browser.close();
+    // Don't close the browser — that propagates a CDP disconnect that the
+    // manager's lifecycle tracking interprets as a Quark death, triggering
+    // an unnecessary restart cycle. Drop our reference and let the main loop
+    // retry; Quark stays running.
+    log.warn(
+      "No BrowserContext found yet; releasing connection and retrying",
+    );
+    setBrowser(null);
     return;
   }
 
   const pages = context.pages();
 
   if (pages.length === 0) {
-    log.warn(`No pages found, current pages:`);
-    for (const p of pages) {
-      log.warn(`  [${await p.title()}] ${p.url()}`);
-    }
-    await browser.close();
+    // Same reasoning as the no-context branch: do NOT close the browser.
+    // Pages may simply not have rendered yet during cold-start. The next
+    // reconnect cycle will pick them up. (Logging the empty for-loop body
+    // here was a no-op anyway.)
+    log.warn("No pages found yet; releasing connection and retrying");
+    setBrowser(null);
     return;
   }
 

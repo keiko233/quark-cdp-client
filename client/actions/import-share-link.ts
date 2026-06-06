@@ -99,11 +99,30 @@ export const importShareLink = createAction(
     return { url, savedPath };
   },
   {
-    description: "Import a Quark cloud drive share link by navigating to it",
+    description: [
+      "Import a Quark Cloud Drive share link — opens the URL inside the",
+      "Quark client, clicks through the \"save to my drive\" flow, and",
+      "returns the path where the shared content was saved.",
+      "",
+      "Input is a full https URL of a Quark share (e.g.",
+      "`https://pan.quark.cn/s/...`). Plain `pan.quark.cn` URLs work; other",
+      "domains will fail at the navigation step.",
+      "",
+      "Returns `{url, savedPath}` where `savedPath` is the destination",
+      "folder inside the user's drive. Behind the scenes a temporary web-",
+      "view window is opened to drive the import — it's closed before the",
+      "call returns, so callers don't need to clean anything up.",
+      "",
+      "Requires the user to be logged in.",
+    ].join("\n"),
     mcp: {
       name: "import_share_link",
       input: z.object({
-        url: z.string().describe("Quark cloud drive share link URL"),
+        url: z.string().describe(
+          "Full HTTPS share URL from pan.quark.cn (e.g. " +
+            "`https://pan.quark.cn/s/abc123`). Passwords/extract codes are " +
+            "NOT currently supported.",
+        ),
       }),
     },
   },

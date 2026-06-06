@@ -193,11 +193,41 @@ export const downloadFile = createAction(
     throw new Error("downloadFile: task polling timeout");
   },
   {
-    description: "Trigger download of a file from Quark cloud drive by its path",
+    description: [
+      "Trigger a download in the Quark client — SYNCHRONOUS wrapper.",
+      "",
+      "Works for BOTH files and folders. Quark itself handles the folder",
+      "case by packaging the directory client-side; you'll see a single",
+      "task in the transport center either way.",
+      "",
+      "This is the convenience entry point: it submits the same work as",
+      "`submit_download_file` and then blocks until that submission has",
+      "actually clicked the download button (the task reaches `completed`",
+      "in OUR queue, NOT until the file is fully downloaded). Returns",
+      "`{name, alreadyQueued?}` where `alreadyQueued: true` means the item",
+      "was already in the transport center (running or complete) and we",
+      "skipped the click.",
+      "",
+      "Prefer the async pair `submit_download_file` + `get_task` when:",
+      "  - the path resolves slowly (deep navigation)",
+      "  - you're batching multiple downloads",
+      "  - the caller can't afford a multi-second sync response.",
+      "",
+      "Polls every 250 ms and times out after 60 s. The actual bytes flow",
+      "inside Quark's own download queue — query `get_download_status` to",
+      "watch real progress.",
+      "",
+      "Dedup: a 5 s sync cache suppresses redundant duplicate-path triggers.",
+    ].join("\n"),
     mcp: {
       name: "download_file",
       input: z.object({
-        path: z.string().describe("File path in Quark drive"),
+        path: z.string().describe(
+          "Full path to the file OR folder in Quark drive, forward-slash " +
+            "separated (e.g. `Movies/2024/movie.mp4` for a file, or " +
+            "`Movies/2024` for a folder). Folder downloads are packaged " +
+            "into a single transport-center task by Quark itself.",
+        ),
       }),
     },
     cache: {

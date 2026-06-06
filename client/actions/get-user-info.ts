@@ -22,7 +22,16 @@ export const getUserInfo = createAction(
     return { capacity };
   },
   {
-    description: "Get user information including storage capacity",
+    description: [
+      "Return basic account info — currently just the storage capacity string",
+      "Quark renders on the home page (e.g. `1.2T/2T`, `512G/1T`).",
+      "",
+      "Requires the user to be logged in. If not, the underlying `capacity-",
+      "number` element won't render and the call throws a Playwright wait",
+      "timeout — guard with `get_login_status` first if you're unsure.",
+      "",
+      "Cached for 30 s.",
+    ].join("\n"),
     mcp: { name: "get_user_info" },
     cache: { cache: userInfoCache, key: () => "s" },
   },

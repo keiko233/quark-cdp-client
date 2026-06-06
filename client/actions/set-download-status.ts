@@ -160,13 +160,34 @@ export const setDownloadStatus = createAction(
     return { success };
   },
   {
-    description: "Control a download task: pause, resume, or delete it",
+    description: [
+      "Operate on a single row in Quark's transport center: `resume`,",
+      "`pause`, or `delete`.",
+      "",
+      "Locate-then-act: we search BOTH `running` and `complete` tabs for a",
+      "row whose name matches `taskName` exactly, then switch to whichever",
+      "tab found it before clicking. This means `delete` works on already-",
+      "completed tasks too (you don't have to remember which tab they're on).",
+      "",
+      "Returns `{success: boolean}`. `false` means either we couldn't find",
+      "a row with that name on either tab, or the row disappeared between",
+      "discovery and click (e.g. another client deleted it). Use",
+      "`get_download_status` with `status: \"all\"` to get an authoritative",
+      "list of `taskName` values.",
+      "",
+      "Note: `delete` removes the task from the transport center UI; it does",
+      "NOT delete the already-downloaded file from disk.",
+    ].join("\n"),
     mcp: {
       name: "set_download_status",
       input: z.object({
-        taskName: z.string().describe("Name of the download task"),
+        taskName: z.string().describe(
+          "Exact `name` of the transport-center row to operate on — get it " +
+            "from `get_download_status`.",
+        ),
         operation: QuarkDownloadTaskOperationSchema.describe(
-          "Operation to perform",
+          "`resume` / `pause` toggle a running task; `delete` removes the " +
+            "row (file on disk is untouched).",
         ),
       }),
     },

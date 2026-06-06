@@ -7,8 +7,14 @@ import { SERVER_PORT } from "../libs/env.ts";
 import { log } from "../libs/logger.ts";
 import { router } from "./router.ts";
 import { setupMcpRoute } from "./mcp.ts";
+import { wakeOnRequest } from "./wake-middleware.ts";
 
 const app = new Hono();
+
+// Wake-on-request goes first: every business request hits the manager /start
+// (idempotent) and waits for CDP to come back online before the oRPC handler
+// runs. /manager/* and metadata routes are exempt — see wake-middleware.ts.
+app.use("/*", wakeOnRequest);
 
 setupMcpRoute(app);
 
@@ -22,6 +28,47 @@ const handler = new OpenAPIHandler(router, {
         info: {
           title: "Quark Remote Client API",
           version: "1.0.0",
+          description: [
+            "Programmatic interface to a headless Quark Cloud Drive Windows",
+            "client running under Wine inside the sibling `quark-docker`",
+            "container. This service drives that client over CDP via",
+            "Playwright and exposes:",
+            "",
+            "- **Quark business actions** (`/version`, `/get-file-list`,",
+            "  `/download-file`, `/submit-download-file{,s}`,",
+            "  `/get-download-status`, `/set-download-status`,",
+            "  `/get-login-qrcode`, `/get-login-status`, `/get-user-info`,",
+            "  `/import-share-link`). These run inside a single-slot",
+            "  browser queue (`concurrency: 1`) because all Playwright ops",
+            "  share the one Quark window.",
+            "- **Task plumbing** (`/get-task`, `/list-tasks`,",
+            "  `/get-queue-status`) for inspecting the in-process async",
+            "  queue that `submit_*` calls populate.",
+            "- **Manager passthrough** (`/manager-status`, `/manager-start`,",
+            "  `/manager-stop`, `/manager-restart`, `/manager-minimize`,",
+            "  `/manager-restore`). These forward to the manager FastAPI",
+            "  inside quark-docker (process lifecycle, window state, idle",
+            "  policy). New manager-related routes follow the same",
+            "  `/manager-<verb>` naming.",
+            "",
+            "**Sync vs async download.** `download_file` blocks until the",
+            "click happens (≤60 s). `submit_download_file` returns a",
+            "`taskId` immediately — poll `get_task(id)` until status reaches",
+            "a terminal state. Use the async form for batches and when the",
+            "caller can't afford a multi-second sync response.",
+            "",
+            "**Wake-on-request.** Every business route is wrapped by a",
+            "middleware that probes CDP and calls `manager-start` if Quark",
+            "has been idle-stopped. The first request after idle pays a",
+            "cold-start delay (a few seconds); subsequent requests are",
+            "instant. `/manager-*` and `/spec.json` / `/openapi.json` are",
+            "exempt from the wake (they ARE the wake / metadata).",
+            "",
+            "**MCP.** The same surface is also exposed as MCP tools over",
+            "`POST /mcp` (tool names are snake_case mirrors of the HTTP",
+            "paths). See the `tools/list` response for the live list and",
+            "per-tool descriptions.",
+          ].join("\n"),
         },
       },
     }),

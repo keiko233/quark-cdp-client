@@ -42,7 +42,19 @@ export const getLoginStatus = createAction(
     return { loggedIn };
   },
   {
-    description: "Check whether the user is currently logged in to Quark",
+    description: [
+      "Check whether the user is currently logged in to Quark.",
+      "",
+      "Returns `{loggedIn: boolean}`. Does NOT initiate a login — if the user",
+      "isn't logged in, call `get_login_qrcode` to start that flow.",
+      "",
+      "Detection: inspects the home page sidebar for the `立即登录` (log in",
+      "now) button; absent = logged in, present = not logged in. If the home",
+      "page isn't open but the login page is, returns `{loggedIn: false}`",
+      "without throwing.",
+      "",
+      "Cached for 5 s to keep polling loops cheap.",
+    ].join("\n"),
     mcp: { name: "get_login_status" },
     cache: { cache: loginStatusCache, key: () => "s" },
   },

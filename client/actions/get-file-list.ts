@@ -418,12 +418,31 @@ export const getFileList = createAction(
     return { path: pathSegments, items };
   },
   {
-    description: "List files and folders in Quark cloud drive",
+    description: [
+      "List files and folders inside a directory of Quark cloud drive.",
+      "",
+      "Path format: forward-slash separated, e.g. `Movies/2024` or",
+      "`Documents/work/specs.pdf` (the trailing leaf works too if you're",
+      "passing a file's parent — pass the parent directly). Omit `path` to",
+      "list the root.",
+      "",
+      "Navigation is incremental: if you're already inside a prefix of the",
+      "target path, the action only opens the remaining segments instead of",
+      "resetting to home. Virtual-scroll is exhausted so all rows are",
+      "materialised, not just the visible viewport.",
+      "",
+      "Cached for 30 s per path. Returns `{path, items}` where `path` is the",
+      "breadcrumb segments (root → []) and `items` is one entry per row with",
+      "name/size/type/updatedAt, surfaced verbatim from the UI.",
+    ].join("\n"),
     mcp: {
       name: "get_file_list",
       input: z.object({
         path: z.string()
-          .describe("Directory path (optional, defaults to root)")
+          .describe(
+            "Directory to list, forward-slash separated (e.g. " +
+              "`Movies/2024`). Omit or empty string to list the root.",
+          )
           .optional(),
       }),
     },

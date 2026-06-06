@@ -1,10 +1,13 @@
 {
+  "unstable": ["sloppy-imports"],
   "tasks": {
     "dev": "deno run --watch -A main.ts",
     "start": "deno run -A main.ts",
-    "test": "deno test -A --no-check"
+    "test": "deno test -A --no-check",
+    "gen-manager-client": "deno run -A --node-modules-dir=auto npm:@hey-api/openapi-ts"
   },
   "imports": {
+    "@hey-api/openapi-ts": "npm:@hey-api/openapi-ts@0.94.5",
     "@libs/logger": "jsr:@libs/logger@^3.1.10",
     "@orpc/openapi": "npm:@orpc/openapi@^1.14.2",
     "@orpc/server": "npm:@orpc/server@^1.14.2",
