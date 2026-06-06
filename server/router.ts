@@ -1,3 +1,16 @@
+// ──────────────────────────────────────────────────────────────────────────────
+// oRPC router. Keep API surface in sync with `server/mcp.ts`.
+//
+// The procedures here correspond to the MCP tools advertised by the sibling
+// `server/mcp.ts` file. `server/mcp.ts` runs a startup parity check that
+// throws if the two sides drift (a tool advertised but not dispatched, or a
+// dispatch handler with no entry in `TOOLS`).
+//
+// When you add a new procedure here, also add the matching entry to
+// `MCP_TOOL_HANDLERS` and `TOOLS` in `server/mcp.ts` — otherwise the server
+// will refuse to start until both sides agree.
+// ──────────────────────────────────────────────────────────────────────────────
+
 import { getBrowser, getBrowserQueueStatus } from "../client/browser.ts";
 import {
   downloadFile,

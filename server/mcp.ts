@@ -1,3 +1,13 @@
+// ──────────────────────────────────────────────────────────────────────────────
+// MCP server. Keep API surface in sync with `server/router.ts`.
+//
+// The set of tools advertised via `tools/list` MUST match the keys of
+// `MCP_TOOL_HANDLERS` below. The parity check at the bottom of this file runs
+// at module load and throws if either side drifts, so adding a new quarkAction
+// without dispatching it (or vice versa) is a build-breaking error, not a
+// silent runtime 404.
+// ──────────────────────────────────────────────────────────────────────────────
+
 import type { Hono } from "hono";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { getBrowser, getBrowserQueueStatus } from "../client/browser.ts";
@@ -8,6 +18,7 @@ import {
   getLoginQRCode,
   getLoginStatus,
   getUserInfo,
+  importShareLink,
   quarkActions,
   setDownloadStatus,
 } from "../client/actions/index.ts";
@@ -15,6 +26,7 @@ import type {
   QuarkDownloadStatusMode,
   QuarkDownloadTaskOperation,
 } from "../libs/schemas.ts";
+import type { QuarkImportShareLinkResult } from "../client/actions/index.ts";
 import { log } from "../libs/logger.ts";
 
 // ── MCP protocol types ────────────────────────────────────────────────────────
@@ -90,63 +102,104 @@ const TOOLS = [
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
 
+// `MCP_TOOL_HANDLERS` is the single source of truth for which tools this
+// server can actually invoke. The parity check at the bottom of this file
+// verifies every entry in `TOOLS` has a matching key here, and vice versa.
+//
+// When you add a new quarkAction (or any other tool), add its handler here
+// AND make sure it appears in `TOOLS` above — the module-load assertion will
+// tell you immediately if you forget.
+type ToolHandler = (args: Record<string, unknown>) => Promise<ToolResult>;
+
+const MCP_TOOL_HANDLERS: Record<string, ToolHandler> = {
+  get_version: async () => text({ version: getBrowser().version() }),
+
+  get_queue_status: async () => text(getBrowserQueueStatus()),
+
+  get_login_qrcode: async () => {
+    const bytes = unwrap<Uint8Array>(await getLoginQRCode());
+    return {
+      content: [{
+        type: "image",
+        data: toBase64(bytes),
+        mimeType: "image/png",
+      }],
+    };
+  },
+
+  get_login_status: async () =>
+    text(unwrap<{ loggedIn: boolean }>(await getLoginStatus())),
+
+  get_user_info: async () =>
+    text(unwrap<{ capacity: string }>(await getUserInfo())),
+
+  get_file_list: async (args) =>
+    text(unwrap(await getFileList(args.path as string | undefined))),
+
+  download_file: async (args) =>
+    text(unwrap(await downloadFile(args.path as string))),
+
+  get_download_status: async (args) =>
+    text(
+      unwrap(
+        await getDownloadStatus(
+          args.status as QuarkDownloadStatusMode | undefined,
+        ),
+      ),
+    ),
+
+  set_download_status: async (args) =>
+    text(
+      unwrap(
+        await setDownloadStatus(
+          args.taskName as string,
+          args.operation as QuarkDownloadTaskOperation,
+        ),
+      ),
+    ),
+
+  import_share_link: async (args) =>
+    text(
+      unwrap<QuarkImportShareLinkResult>(
+        await importShareLink(args.url as string),
+      ),
+    ),
+};
+
 async function callTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  switch (name) {
-    case "get_version": {
-      const browser = getBrowser();
-      return text({ version: browser.version() });
-    }
+  const handler = MCP_TOOL_HANDLERS[name];
+  if (!handler) {
+    return errResult(
+      `Unknown tool: ${name}. ` +
+        `If this tool is advertised via tools/list but not handled, the ` +
+        `MCP_TOOL_HANDLERS map in server/mcp.ts is missing an entry.`,
+    );
+  }
+  return await handler(args);
+}
 
-    case "get_queue_status":
-      return text(getBrowserQueueStatus());
+// ── Parity check ──────────────────────────────────────────────────────────────
+// Runs at module load. Throws if `TOOLS` (advertised) and `MCP_TOOL_HANDLERS`
+// (dispatched) drift apart. This is the guard that catches omissions like
+// `import_share_link` being declared in quarkActions but not dispatched.
+{
+  const advertised = new Set(TOOLS.map((t) => t.name));
+  const handled = new Set(Object.keys(MCP_TOOL_HANDLERS));
+  const unhandled = [...advertised].filter((n) => !handled.has(n));
+  const unadvertised = [...handled].filter((n) => !advertised.has(n));
 
-    case "get_login_qrcode": {
-      const bytes = unwrap<Uint8Array>(await getLoginQRCode());
-      return {
-        content: [{
-          type: "image",
-          data: toBase64(bytes),
-          mimeType: "image/png",
-        }],
-      };
-    }
-
-    case "get_login_status":
-      return text(unwrap<{ loggedIn: boolean }>(await getLoginStatus()));
-
-    case "get_user_info":
-      return text(unwrap<{ capacity: string }>(await getUserInfo()));
-
-    case "get_file_list":
-      return text(unwrap(await getFileList(args.path as string | undefined)));
-
-    case "download_file":
-      return text(unwrap(await downloadFile(args.path as string)));
-
-    case "get_download_status":
-      return text(
-        unwrap(
-          await getDownloadStatus(
-            args.status as QuarkDownloadStatusMode | undefined,
-          ),
-        ),
-      );
-
-    case "set_download_status":
-      return text(
-        unwrap(
-          await setDownloadStatus(
-            args.taskName as string,
-            args.operation as QuarkDownloadTaskOperation,
-          ),
-        ),
-      );
-
-    default:
-      return errResult(`Unknown tool: ${name}`);
+  if (unhandled.length > 0 || unadvertised.length > 0) {
+    throw new Error(
+      `[mcp] API parity violation between TOOLS and MCP_TOOL_HANDLERS: ` +
+        `advertised-but-unhandled=[${unhandled.join(", ")}], ` +
+        `handled-but-unadvertised=[${unadvertised.join(", ")}]. ` +
+        `If you added a quarkAction, also add a handler; if you added a ` +
+        `handler, also expose it in TOOLS. See the header comment in ` +
+        `server/mcp.ts.`,
+    );
   }
 }
 

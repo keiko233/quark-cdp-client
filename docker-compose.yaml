@@ -1,6 +1,6 @@
 services:
   quark-docker:
-    image: ghcr.io/keiko233/quark-docker:latest
+    image: ghcr.io/keiko233/quark-docker:sha-ec773f2
     container_name: quark-docker
     hostname: quark-docker
     networks:
